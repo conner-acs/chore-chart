@@ -1,0 +1,19 @@
+{
+  "name": "chore-chart",
+  "version": "1.0.0",
+  "description": "Serverless to-do app demo: Lambda + API Gateway + DynamoDB",
+  "type": "module",
+  "scripts": {
+    "deploy": "serverless deploy",
+    "remove": "serverless remove",
+    "logs": "serverless logs",
+    "offline": "serverless offline"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.700.0",
+    "@aws-sdk/lib-dynamodb": "^3.700.0"
+  },
+  "devDependencies": {
+    "serverless": "^4.38.0"
+  }
+}
