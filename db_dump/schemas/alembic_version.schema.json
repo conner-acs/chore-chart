@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeday/schemas/alembic_version.schema.json",
+  "title": "alembic_version",
+  "description": "Row object for the public.alembic_version table (childcare_dev).",
+  "type": "object",
+  "x-primary-key": [
+    "version_num"
+  ],
+  "properties": {
+    "version_num": {
+      "type": "string",
+      "maxLength": 32
+    }
+  },
+  "required": [
+    "version_num"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeday/schemas/user_site_permissions.schema.json",
+  "title": "user_site_permissions",
+  "description": "Row object for the public.user_site_permissions table (childcare_dev).",
+  "type": "object",
+  "x-primary-key": [
+    "id"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "user_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "site_id": {
+      "type": "string",
+      "format": "uuid"
+    }
+  },
+  "required": [
+    "id",
+    "user_id",
+    "site_id"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeday/schemas/device_tokens.schema.json",
+  "title": "device_tokens",
+  "description": "Row object for the public.device_tokens table (childcare_dev).",
+  "type": "object",
+  "x-primary-key": [
+    "id"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "user_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "token": {
+      "type": "string"
+    },
+    "platform": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "user_id",
+    "token",
+    "platform"
+  ],
+  "additionalProperties": false
+}

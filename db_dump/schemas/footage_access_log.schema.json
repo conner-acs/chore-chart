@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeday/schemas/footage_access_log.schema.json",
+  "title": "footage_access_log",
+  "description": "Row object for the public.footage_access_log table (childcare_dev).",
+  "type": "object",
+  "x-primary-key": [
+    "id"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "alert_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "user_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "accessed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "clip_viewed",
+        "discarded",
+        "submitted_for_review",
+        "incident"
+      ]
+    },
+    "user_email": {
+      "type": "string"
+    },
+    "user_full_name": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "alert_id",
+    "accessed_at",
+    "action",
+    "user_email",
+    "user_full_name"
+  ],
+  "additionalProperties": false
+}

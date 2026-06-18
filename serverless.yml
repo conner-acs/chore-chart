@@ -1,6 +1,10 @@
-service: chore-chart
+service: safeday
 
 frameworkVersion: "4"
+
+# SafeDay childcare alert-triage backend — FastAPI -> Serverless Framework.
+# HTTP API (REST) + WebSocket API (real-time alerts) + a streaming Function URL
+# (footage), all backed by DynamoDB. Secrets live in AWS Secrets Manager.
 
 provider:
   name: aws
@@ -8,73 +12,290 @@ provider:
   region: ${opt:region, 'us-east-1'}
   stage: ${opt:stage, 'dev'}
   profile: default
+  memorySize: 256
+  timeout: 29
+  httpApi:
+    cors: true
   environment:
-    TODOS_TABLE: ${self:service}-${self:provider.stage}
+    STAGE: ${self:provider.stage}
+    SECRETS_ID: ${self:custom.secretName}
+    ORGANIZATIONS_TABLE: ${self:custom.prefix}-organizations
+    SITES_TABLE: ${self:custom.prefix}-sites
+    USERS_TABLE: ${self:custom.prefix}-users
+    USER_SITE_PERMISSIONS_TABLE: ${self:custom.prefix}-user-site-permissions
+    ALERTS_TABLE: ${self:custom.prefix}-alerts
+    FOOTAGE_ACCESS_LOG_TABLE: ${self:custom.prefix}-footage-access-log
+    DEVICE_TOKENS_TABLE: ${self:custom.prefix}-device-tokens
+    CONNECTIONS_TABLE: ${self:custom.prefix}-connections
+    WEBSOCKET_CALLBACK_URL: !Sub "https://${WebsocketsApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}"
+    # Non-secret email/runtime config (the Mailtrap *token* is a secret).
+    ENVIRONMENT: ${self:provider.stage}
+    MAILTRAP_SANDBOX: "true"
+    MAILTRAP_INBOX_ID: "4711702"
+    MAILTRAP_SENDER_EMAIL: hello@demomailtrap.co
+    MAILTRAP_SENDER_NAME: SafeDay
+    PUBLIC_BASE_URL: http://localhost:3000
   iam:
     role:
       statements:
         - Effect: Allow
           Action:
-            - dynamodb:PutItem
             - dynamodb:GetItem
+            - dynamodb:PutItem
             - dynamodb:UpdateItem
             - dynamodb:DeleteItem
+            - dynamodb:Query
             - dynamodb:Scan
+            - dynamodb:BatchWriteItem
           Resource:
-            - !GetAtt TodosTable.Arn
+            - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${self:custom.prefix}-*"
+            - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${self:custom.prefix}-*/index/*"
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource:
+            - !Ref AppSecret
+        - Effect: Allow
+          Action:
+            - execute-api:ManageConnections
+          Resource:
+            - !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:*/*/*/@connections/*"
 
-# --- sls functions: one Lambda per route, wired to API Gateway ---
+custom:
+  prefix: ${self:service}-${self:provider.stage}
+  secretName: ${self:service}/${self:provider.stage}/app
+
+package:
+  patterns:
+    - "!db_dump/**"
+    - "!scripts/**"
+    - "!**/*.http"
+    - "!**/*.postman_collection.json"
+
 functions:
-  createTodo:
-    handler: src/handlers/create.handler
+  # ---- REST: one Lambda per router, dispatching internally on routeKey ----
+  auth:
+    handler: src/handlers/auth.handler
     events:
-      - httpApi:
-          path: /todos
-          method: post
+      - httpApi: { path: "/api/v1/auth/login", method: post }
+      - httpApi: { path: "/api/v1/auth/refresh", method: post }
+      - httpApi: { path: "/api/v1/auth/set-password", method: post }
+      - httpApi: { path: "/api/v1/auth/me", method: get }
 
-  listTodos:
-    handler: src/handlers/list.handler
+  alerts:
+    handler: src/handlers/alerts.handler
     events:
-      - httpApi:
-          path: /todos
-          method: get
+      - httpApi: { path: "/api/v1/alerts", method: get }
+      - httpApi: { path: "/api/v1/alerts/{alert_id}", method: get }
+      - httpApi: { path: "/api/v1/alerts/{alert_id}/decision", method: post }
 
-  getTodo:
-    handler: src/handlers/get.handler
+  sites:
+    handler: src/handlers/sites.handler
     events:
-      - httpApi:
-          path: /todos/{id}
-          method: get
+      - httpApi: { path: "/api/v1/sites", method: get }
+      - httpApi: { path: "/api/v1/sites/{site_id}/users", method: get }
+      - httpApi: { path: "/api/v1/sites/{site_id}/users", method: post }
+      - httpApi: { path: "/api/v1/sites/{site_id}/users/{user_id}", method: delete }
+      - httpApi: { path: "/api/v1/sites/{site_id}/audit-log", method: get }
 
-  updateTodo:
-    handler: src/handlers/update.handler
+  admin:
+    handler: src/handlers/admin.handler
     events:
-      - httpApi:
-          path: /todos/{id}
-          method: put
+      - httpApi: { path: "/api/v1/admin/organizations", method: get }
+      - httpApi: { path: "/api/v1/admin/organizations", method: post }
+      - httpApi: { path: "/api/v1/admin/organizations/{organization_id}", method: delete }
+      - httpApi: { path: "/api/v1/admin/organizations/{organization_id}/sites", method: get }
+      - httpApi: { path: "/api/v1/admin/organizations/{organization_id}/sites", method: post }
+      - httpApi: { path: "/api/v1/admin/sites", method: post }
+      - httpApi: { path: "/api/v1/admin/sites", method: get }
+      - httpApi: { path: "/api/v1/admin/sites/{site_id}/test-connection", method: post }
+      - httpApi: { path: "/api/v1/admin/sites/{site_id}/cameras", method: get }
+      - httpApi: { path: "/api/v1/admin/sites/{site_id}", method: delete }
+      - httpApi: { path: "/api/v1/admin/users", method: get }
+      - httpApi: { path: "/api/v1/admin/users", method: post }
+      - httpApi: { path: "/api/v1/admin/users/{user_id}/resend-invite", method: post }
+      - httpApi: { path: "/api/v1/admin/users", method: put }
+      - httpApi: { path: "/api/v1/admin/users/{user_id}", method: delete }
 
-  deleteTodo:
-    handler: src/handlers/delete.handler
+  webhooks:
+    handler: src/handlers/webhooks.handler
     events:
-      - httpApi:
-          path: /todos/{id}
-          method: delete
+      - httpApi: { path: "/api/v1/webhooks/alert", method: post }
+
+  # ---- Footage: streaming Function URL (bypasses API Gateway 10MB/29s) ----
+  footage:
+    handler: src/handlers/footage.handler
+    timeout: 300
+    url:
+      invokeMode: RESPONSE_STREAM
+      cors: true
+
+  # ---- WebSocket API: real-time alert notifications ----
+  wsConnect:
+    handler: src/handlers/ws.connect
+    events:
+      - websocket: { route: $connect }
+  wsDisconnect:
+    handler: src/handlers/ws.disconnect
+    events:
+      - websocket: { route: $disconnect }
+  wsDefault:
+    handler: src/handlers/ws.defaultRoute
+    events:
+      - websocket: { route: $default }
 
 resources:
   Resources:
-    TodosTable:
+    # ---- Secrets (STUB) ---------------------------------------------------
+    # Created with placeholder values so the stack deploys. Populate real
+    # values out-of-band (see README) — CloudFormation won't overwrite them on
+    # later deploys because the template's SecretString stays unchanged.
+    AppSecret:
+      Type: AWS::SecretsManager::Secret
+      Properties:
+        Name: ${self:custom.secretName}
+        Description: SafeDay backend secrets (JWT, Nx encryption, webhook, Mailtrap)
+        SecretString: >-
+          {"secretKey":"REPLACE_ME","nxCredentialEncryptionKey":"REPLACE_ME","webhookSecret":"REPLACE_ME","mailtrapApiToken":""}
+
+    # ---- DynamoDB tables --------------------------------------------------
+    OrganizationsTable:
       Type: AWS::DynamoDB::Table
       Properties:
-        TableName: ${self:provider.environment.TODOS_TABLE}
+        TableName: ${self:custom.prefix}-organizations
         BillingMode: PAY_PER_REQUEST
         AttributeDefinitions:
-          - AttributeName: id
-            AttributeType: S
+          - { AttributeName: id, AttributeType: S }
         KeySchema:
-          - AttributeName: id
-            KeyType: HASH
+          - { AttributeName: id, KeyType: HASH }
 
-  Outputs:
-    ApiBaseUrl:
-      Description: API Gateway base URL
-      Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
+    SitesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-sites
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - { AttributeName: id, AttributeType: S }
+          - { AttributeName: site_token, AttributeType: S }
+          - { AttributeName: organization_id, AttributeType: S }
+        KeySchema:
+          - { AttributeName: id, KeyType: HASH }
+        GlobalSecondaryIndexes:
+          - IndexName: site_token-index
+            KeySchema:
+              - { AttributeName: site_token, KeyType: HASH }
+            Projection: { ProjectionType: ALL }
+          - IndexName: organization_id-index
+            KeySchema:
+              - { AttributeName: organization_id, KeyType: HASH }
+            Projection: { ProjectionType: ALL }
+
+    UsersTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-users
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - { AttributeName: id, AttributeType: S }
+          - { AttributeName: email, AttributeType: S }
+          - { AttributeName: organization_id, AttributeType: S }
+        KeySchema:
+          - { AttributeName: id, KeyType: HASH }
+        GlobalSecondaryIndexes:
+          - IndexName: email-index
+            KeySchema:
+              - { AttributeName: email, KeyType: HASH }
+            Projection: { ProjectionType: ALL }
+          - IndexName: organization_id-index
+            KeySchema:
+              - { AttributeName: organization_id, KeyType: HASH }
+            Projection: { ProjectionType: ALL }
+
+    UserSitePermissionsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-user-site-permissions
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - { AttributeName: user_id, AttributeType: S }
+          - { AttributeName: site_id, AttributeType: S }
+        KeySchema:
+          - { AttributeName: user_id, KeyType: HASH }
+          - { AttributeName: site_id, KeyType: RANGE }
+        GlobalSecondaryIndexes:
+          - IndexName: site_id-index
+            KeySchema:
+              - { AttributeName: site_id, KeyType: HASH }
+            Projection: { ProjectionType: ALL }
+
+    AlertsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-alerts
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - { AttributeName: id, AttributeType: S }
+          - { AttributeName: site_id, AttributeType: S }
+          - { AttributeName: created_at, AttributeType: S }
+        KeySchema:
+          - { AttributeName: id, KeyType: HASH }
+        GlobalSecondaryIndexes:
+          - IndexName: site_id-created_at-index
+            KeySchema:
+              - { AttributeName: site_id, KeyType: HASH }
+              - { AttributeName: created_at, KeyType: RANGE }
+            Projection: { ProjectionType: ALL }
+
+    FootageAccessLogTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-footage-access-log
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - { AttributeName: id, AttributeType: S }
+          - { AttributeName: site_id, AttributeType: S }
+          - { AttributeName: accessed_at, AttributeType: S }
+        KeySchema:
+          - { AttributeName: id, KeyType: HASH }
+        GlobalSecondaryIndexes:
+          - IndexName: site_id-accessed_at-index
+            KeySchema:
+              - { AttributeName: site_id, KeyType: HASH }
+              - { AttributeName: accessed_at, KeyType: RANGE }
+            Projection: { ProjectionType: ALL }
+
+    DeviceTokensTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-device-tokens
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - { AttributeName: id, AttributeType: S }
+          - { AttributeName: user_id, AttributeType: S }
+        KeySchema:
+          - { AttributeName: id, KeyType: HASH }
+        GlobalSecondaryIndexes:
+          - IndexName: user_id-index
+            KeySchema:
+              - { AttributeName: user_id, KeyType: HASH }
+            Projection: { ProjectionType: ALL }
+
+    ConnectionsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-connections
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - { AttributeName: connectionId, AttributeType: S }
+          - { AttributeName: user_id, AttributeType: S }
+        KeySchema:
+          - { AttributeName: connectionId, KeyType: HASH }
+        GlobalSecondaryIndexes:
+          - IndexName: user_id-index
+            KeySchema:
+              - { AttributeName: user_id, KeyType: HASH }
+            Projection: { ProjectionType: ALL }
+
+# Note: Serverless auto-generates the `HttpApiUrl` and `ServiceEndpointWebsocket`
+# stack outputs, so we don't define our own (a same-named Output would merge into
+# an invalid map).
