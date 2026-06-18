@@ -19,6 +19,7 @@ const ENV_FALLBACKS = {
   NX_CREDENTIAL_ENCRYPTION_KEY: "nxCredentialEncryptionKey",
   WEBHOOK_SECRET: "webhookSecret",
   MAILTRAP_API_TOKEN: "mailtrapApiToken",
+  TEST_EMAIL_TO: "testEmailTo",
 };
 
 async function load() {

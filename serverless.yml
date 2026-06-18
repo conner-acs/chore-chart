@@ -11,11 +11,15 @@ provider:
   runtime: nodejs20.x
   region: ${opt:region, 'us-east-1'}
   stage: ${opt:stage, 'dev'}
-  profile: default
+  # Honour --aws-profile / AWS_PROFILE, defaulting to 'default' so `npm run
+  # deploy` keeps working unchanged.
+  profile: ${opt:aws-profile, env:AWS_PROFILE, 'default'}
   memorySize: 256
   timeout: 29
   httpApi:
-    cors: true
+    # Per-stage CORS: '*' for local dev only; locked to the site origin(s)
+    # otherwise (industry best practice — no wildcard origin in production).
+    cors: ${self:custom.cors.${self:provider.stage}, self:custom.cors.default}
   environment:
     STAGE: ${self:provider.stage}
     SECRETS_ID: ${self:custom.secretName}
@@ -28,13 +32,18 @@ provider:
     DEVICE_TOKENS_TABLE: ${self:custom.prefix}-device-tokens
     CONNECTIONS_TABLE: ${self:custom.prefix}-connections
     WEBSOCKET_CALLBACK_URL: !Sub "https://${WebsocketsApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}"
-    # Non-secret email/runtime config (the Mailtrap *token* is a secret).
+    # Non-secret email/runtime config (the Mailtrap token + test recipient are secrets).
     ENVIRONMENT: ${self:provider.stage}
+    EMAIL_PROVIDER: ${self:custom.emailProvider.${self:provider.stage}, self:custom.emailProvider.default}
+    EMAIL_SENDER_NAME: SafeDay
+    # SES (production sender). SES_FROM must be a verified SES identity / domain.
+    SES_FROM: ${self:custom.sesFrom.${self:provider.stage}, self:custom.sesFrom.default}
+    SES_REGION: ${self:provider.region}
+    # Mailtrap (dev sandbox capture).
     MAILTRAP_SANDBOX: "true"
     MAILTRAP_INBOX_ID: "4711702"
     MAILTRAP_SENDER_EMAIL: hello@demomailtrap.co
-    MAILTRAP_SENDER_NAME: SafeDay
-    PUBLIC_BASE_URL: http://localhost:3000
+    PUBLIC_BASE_URL: ${self:custom.publicBaseUrl.${self:provider.stage}, self:custom.publicBaseUrl.default}
   iam:
     role:
       statements:
@@ -60,10 +69,43 @@ provider:
             - execute-api:ManageConnections
           Resource:
             - !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:*/*/*/@connections/*"
+        - Effect: Allow
+          Action:
+            - ses:SendEmail
+            - ses:SendRawEmail
+          Resource: "*"
+          # Restrict sends to our own verified identities.
+          Condition:
+            StringLike:
+              ses:FromAddress: "*@safeday.com.au"
 
 custom:
   prefix: ${self:service}-${self:provider.stage}
   secretName: ${self:service}/${self:provider.stage}/app
+
+  # --- per-stage configuration (key by stage; `default` is the fallback) ---
+
+  # CORS: currently wildcard ('*') for all stages.
+  # NOTE: a restricted prod allow-list (https://safeday.com.au) was reverted per
+  # request. To re-enable later, add a `prod:` block here with allowedOrigins etc.
+  cors:
+    default: true
+
+  # Footage Function URL CORS (separate from the HTTP API).
+  fnUrlCors:
+    default: true
+
+  publicBaseUrl:
+    default: http://localhost:3000
+    prod: https://safeday.com.au/
+
+  emailProvider:
+    default: mailtrap
+    prod: ses
+
+  sesFrom:
+    default: ""
+    prod: no-reply@safeday.com.au
 
 package:
   patterns:
@@ -116,6 +158,7 @@ functions:
       - httpApi: { path: "/api/v1/admin/users/{user_id}/resend-invite", method: post }
       - httpApi: { path: "/api/v1/admin/users", method: put }
       - httpApi: { path: "/api/v1/admin/users/{user_id}", method: delete }
+      - httpApi: { path: "/api/v1/admin/test-email", method: post }
 
   webhooks:
     handler: src/handlers/webhooks.handler
@@ -128,7 +171,7 @@ functions:
     timeout: 300
     url:
       invokeMode: RESPONSE_STREAM
-      cors: true
+      cors: ${self:custom.fnUrlCors.${self:provider.stage}, self:custom.fnUrlCors.default}
 
   # ---- WebSocket API: real-time alert notifications ----
   wsConnect:

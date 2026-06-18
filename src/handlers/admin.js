@@ -4,7 +4,7 @@ import { newId } from "../lib/ids.js";
 import { hashPassword, createSetPasswordToken } from "../lib/auth.js";
 import { encryptNxPassword, decryptNxPassword } from "../lib/fernet.js";
 import { NxWitnessClient, NxWitnessError } from "../services/nxWitness.js";
-import { sendSetPasswordEmail } from "../services/email.js";
+import { sendSetPasswordEmail, sendTestEmail } from "../services/email.js";
 import {
   listOrganizations,
   getOrganization,
@@ -344,6 +344,13 @@ async function getSitesByIdsForSummary(ids) {
   return sites.filter(Boolean);
 }
 
+// Fire a diagnostic email to the `testEmailTo` secret — verifies the email
+// pipeline (SES in prod) end to end. Returns the provider/result detail.
+async function testEmail() {
+  const result = await sendTestEmail();
+  return result; // { provider, from, to, sent, messageId?, error? }
+}
+
 async function deleteUserAdmin({ params }) {
   const user = await getUser(params.user_id);
   if (!user) throw new HttpError(404, "User not found");
@@ -404,4 +411,5 @@ export const handler = createRouter({
   },
   "PUT /api/v1/admin/users": { fn: updateUser, auth: "user", schema: updateUserSchema },
   "DELETE /api/v1/admin/users/{user_id}": { fn: deleteUserAdmin, auth: "superuser", status: 204 },
+  "POST /api/v1/admin/test-email": { fn: testEmail, auth: "superuser" },
 });

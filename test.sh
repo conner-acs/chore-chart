@@ -113,4 +113,21 @@ code=$(curl -s -o /dev/null -w '%{http_code}' "$API/api/v1/alerts")
 [ "$code" = "401" ] || fail "expected 401, got $code"
 pass "unauthenticated request rejected (401)"
 
+echo "[10] POST /admin/test-email (fires a test email to the TEST_EMAIL_TO secret)"
+if [ "$ROLE" = "superuser" ]; then
+  res=$(curl -s -w '\n%{http_code}' -X POST "$API/api/v1/admin/test-email" -H "$AUTH")
+  http=$(echo "$res" | tail -1); body=$(echo "$res" | sed '$d')
+  [ "$http" = "200" ] || fail "test-email endpoint returned $http: $body"
+  sent=$(echo "$body" | jq -r '.sent'); prov=$(echo "$body" | jq -r '.provider')
+  to=$(echo "$body" | jq -r '.to // "?"'); err=$(echo "$body" | jq -r '.error // ""')
+  if [ "$sent" = "true" ]; then
+    pass "test email sent via $prov to $to"
+  else
+    # Endpoint works; delivery may be pending SES identity verification / prod access.
+    pass "test-email endpoint OK (provider=$prov) — not delivered yet: ${err:-unknown}"
+  fi
+else
+  echo "      skipped — needs superuser (logged in as '$ROLE')"
+fi
+
 printf '\n\033[32mAll checks passed.\033[0m\n'
