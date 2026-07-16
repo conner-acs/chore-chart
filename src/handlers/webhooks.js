@@ -10,7 +10,10 @@ import { webhookAlertSchema } from "../schemas/index.js";
 
 // Receive a new alert from the CV pipeline. Authenticated by the shared
 // X-Webhook-Secret header (not JWT) — the caller is the Nx plugin, not an operator.
-async function receiveAlert({ event, body }) {
+// Exported so the "Send test alert" admin action can invoke the real webhook
+// path in-process (secret check + site_token resolution + putAlert + broadcast)
+// rather than duplicating alert creation.
+export async function receiveAlert({ event, body }) {
   const provided =
     event.headers?.["x-webhook-secret"] || event.headers?.["X-Webhook-Secret"];
   const expected = await getSecret("webhookSecret");
@@ -36,6 +39,8 @@ async function receiveAlert({ event, body }) {
     created_at: nowIso(),
   };
   await putAlert(alert);
+  // Traceable log so a test/live alert is greppable in CloudWatch by id.
+  console.info("receiveAlert: created alert", alert.id, "for site", site.id);
 
   // Fan out to connected operators/superusers. Best-effort — never block the
   // 201 on a notification failure.

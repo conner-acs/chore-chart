@@ -28,6 +28,17 @@ export const refreshSchema = Joi.object({
   refresh_token: Joi.string().required(),
 });
 
+export const forgotPasswordSchema = Joi.object({
+  email: email.required(),
+}).options({ stripUnknown: true });
+
+// Settings "Send test alert" — all fields optional; the handler fills defaults.
+export const testAlertSchema = Joi.object({
+  site_id: Joi.string().uuid(),
+  camera_id: Joi.string(),
+  alert_type: Joi.string().pattern(ALERT_TYPE),
+}).options({ stripUnknown: true });
+
 export const setPasswordSchema = Joi.object({
   token: Joi.string().required(),
   new_password: Joi.string().min(8).required(),
@@ -48,11 +59,22 @@ export const webhookAlertSchema = Joi.object({
   nx_bookmark_id: Joi.string().allow(null),
 });
 
+// Decision labels (the workflow unit). Terminal status is derived from these
+// server-side: genuine -> incident, false_alarm/false_positive -> discarded.
+export const DECISION_LABELS = ["false_alarm", "false_positive", "genuine"];
+
 export const alertDecisionSchema = Joi.object({
+  // status="submitted_for_review" means escalate/propose; incident|discarded
+  // means a resolution attempt (the terminal status is re-derived from the label).
   status: Joi.string().valid(...DECISION_STATUSES).required().messages({
-    "any.only": "status must be 'discarded' or 'submitted_for_review'",
+    "any.only": "status must be 'discarded', 'submitted_for_review', or 'incident'",
   }),
-  decision_label: Joi.string().allow(null),
+  // The proposed/agreed/resolved label — always required.
+  decision_label: Joi.string().valid(...DECISION_LABELS).required().messages({
+    "any.only": "decision_label must be 'false_alarm', 'false_positive', or 'genuine'",
+  }),
+  // Optional free-text note (e.g. a dissent reason); persisted as review_note.
+  note: Joi.string().allow(null, ""),
 });
 
 // ---- sites --------------------------------------------------------------

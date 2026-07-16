@@ -31,6 +31,24 @@ async function load() {
     for (const [env, key] of Object.entries(ENV_FALLBACKS)) {
       if (process.env[env] !== undefined) cache[key] = process.env[env];
     }
+    // Per-org Nx credentials as a JSON string for local dev, e.g.
+    //   NX_CREDENTIALS_JSON='{"<org_id>":{"username":"admin","password":"..."}}'
+    if (process.env.NX_CREDENTIALS_JSON) {
+      try {
+        cache.nxCredentials = JSON.parse(process.env.NX_CREDENTIALS_JSON);
+      } catch {
+        /* leave unset; getOrgNxCredentials will report none configured */
+      }
+    }
+    // One credential set whitelisted to several orgs, e.g.
+    //   NX_SHARED_CREDENTIALS_JSON='{"username":"admin","password":"..","orgIds":["a","b"]}'
+    if (process.env.NX_SHARED_CREDENTIALS_JSON) {
+      try {
+        cache.nxSharedCredentials = JSON.parse(process.env.NX_SHARED_CREDENTIALS_JSON);
+      } catch {
+        /* leave unset */
+      }
+    }
     return cache;
   }
 
@@ -59,4 +77,45 @@ export async function getOptionalSecret(key) {
   const secrets = await load();
   const value = secrets[key];
   return value === "" ? undefined : value;
+}
+
+// Per-organization Nx Witness credentials, resolved from the Secrets Manager
+// bundle. Two sources, checked in order:
+//
+//   1. `nxCredentials`        - explicit per-org map:
+//                               { "<org_id>": { username, password } }
+//   2. `nxSharedCredentials`  - one credential set whitelisted to many orgs:
+//                               { username, password, orgIds: ["<org_id>", ...] }
+//
+// A per-org entry always wins over the shared set, so a single org can override
+// the shared credentials. Keeping the VMS username+password in Secrets Manager
+// (not DynamoDB) means the footage path resolves them at request time and they
+// never live in the data store. Returns null when the org matches neither, so
+// the caller surfaces a clean 502 rather than crashing.
+// Coerce to strings so a mis-typed secret value (e.g. a password written as a
+// bare JSON number → the Nx login body carries `"password":<number>`, which Nx
+// rejects with a 400) can't corrupt the request. Returns null unless BOTH are
+// non-empty strings, so the caller still surfaces a clean 502 for missing creds.
+function normalizeCreds(username, password) {
+  const u = username == null ? "" : String(username);
+  const p = password == null ? "" : String(password);
+  return u && p ? { username: u, password: p } : null;
+}
+
+export async function getOrgNxCredentials(organizationId) {
+  const secrets = await load();
+
+  const explicit = (secrets.nxCredentials || {})[organizationId];
+  if (explicit) {
+    const creds = normalizeCreds(explicit.username, explicit.password);
+    if (creds) return creds;
+  }
+
+  const shared = secrets.nxSharedCredentials;
+  if (shared && Array.isArray(shared.orgIds) && shared.orgIds.includes(organizationId)) {
+    const creds = normalizeCreds(shared.username, shared.password);
+    if (creds) return creds;
+  }
+
+  return null;
 }

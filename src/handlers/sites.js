@@ -11,6 +11,8 @@ import {
   listUserIdsForSite,
 } from "../lib/repo/permissions.js";
 import { listLogsBySite } from "../lib/repo/footageLog.js";
+import { NxWitnessClient } from "../services/nxWitness.js";
+import { getOrgNxCredentials } from "../lib/secrets.js";
 import { siteResponse, siteUserResponse, auditLogEntryResponse } from "../lib/presenters.js";
 import { addUserToSiteSchema } from "../schemas/index.js";
 
@@ -81,8 +83,40 @@ async function getAuditLog({ user, params, query }) {
   return logs.slice(offset, offset + limit).map(auditLogEntryResponse);
 }
 
+// Camera id -> name for a site, resolved live from its Nx VMS. Accessible to any
+// user permitted on the site (unlike the superuser-only admin cameras endpoint),
+// so the operator UI can label alerts/notifications with the real camera name
+// instead of a raw id. Returns [] if the VMS isn't configured/reachable — the
+// client then falls back to the camera id, never a fabricated label.
+async function listSiteCameras({ user, params }) {
+  if (!(await userCanAccessSite(user, params.site_id))) {
+    throw new HttpError(403, "Access denied");
+  }
+  const site = await getSite(params.site_id);
+  if (!site) throw new HttpError(404, "Site not found");
+  const creds = await getOrgNxCredentials(site.organization_id);
+  if (!creds || !site.nx_host) return [];
+  try {
+    const client = new NxWitnessClient({
+      host: site.nx_host,
+      username: creds.username,
+      password: creds.password,
+      tlsCert: site.nx_tls_cert,
+    });
+    const devices = await client.listDevices();
+    return (devices || [])
+      .filter((d) => d && d.id)
+      .map((d) => ({ id: d.id, name: d.name || d.id }));
+  } catch (err) {
+    // Any failure (VMS down, bad creds) yields the id fallback — never fail the UI.
+    console.warn("listSiteCameras: VMS unreachable:", err.message);
+    return [];
+  }
+}
+
 export const handler = createRouter({
   "GET /api/v1/sites": { fn: listSites, auth: "user" },
+  "GET /api/v1/sites/{site_id}/cameras": { fn: listSiteCameras, auth: "user" },
   "GET /api/v1/sites/{site_id}/users": { fn: listSiteUsers, auth: "site_admin" },
   "POST /api/v1/sites/{site_id}/users": {
     fn: addUserToSite,

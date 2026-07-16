@@ -29,9 +29,21 @@ export const alertResponse = (a) => ({
   end_timestamp: a.end_timestamp,
   nx_bookmark_id: n(a.nx_bookmark_id),
   status: a.status,
+  // Review-workflow contract (matches the frontend's mapLiveAlert).
+  proposer_id: n(a.proposer_id),
+  proposer_label: n(a.proposer_label),
+  proposed_at: n(a.proposed_at),
+  conflicted: a.conflicted ?? false,
+  review_by: n(a.review_by ?? a.resolved_by),
+  review_label: n(a.review_label),
+  review_note: n(a.review_note),
+  resolved_by: n(a.resolved_by),
+  resolved_at: n(a.resolved_at),
+  // Back-compat: decided_by stays the proposer; decision_label mirrors the
+  // most relevant label (resolved label if resolved, else proposed).
   decided_by: n(a.decided_by),
   decided_at: n(a.decided_at),
-  decision_label: n(a.decision_label),
+  decision_label: n(a.decision_label ?? a.review_label ?? a.proposer_label),
   created_at: a.created_at,
 });
 

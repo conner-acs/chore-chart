@@ -31,6 +31,9 @@ provider:
     FOOTAGE_ACCESS_LOG_TABLE: ${self:custom.prefix}-footage-access-log
     DEVICE_TOKENS_TABLE: ${self:custom.prefix}-device-tokens
     CONNECTIONS_TABLE: ${self:custom.prefix}-connections
+    # Email domains permitted to access footage HISTORY (comma-separated).
+    # Overridable per deploy; defaults live in src/lib/footageAccess.js.
+    FOOTAGE_ALLOWED_EMAIL_DOMAINS: ${self:custom.footageAllowedDomains}
     WEBSOCKET_CALLBACK_URL: !Sub "https://${WebsocketsApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}"
     # Non-secret email/runtime config (the Mailtrap token + test recipient are secrets).
     ENVIRONMENT: ${self:provider.stage}
@@ -83,6 +86,10 @@ custom:
   prefix: ${self:service}-${self:provider.stage}
   secretName: ${self:service}/${self:provider.stage}/app
 
+  # Email domains allowed to access footage history (comma-separated). Mirrors
+  # the default in src/lib/footageAccess.js; edit here to change per deploy.
+  footageAllowedDomains: "ascensioncloudsolutions.com,artoflogic.ai,barrickgroup.au"
+
   # --- per-stage configuration (key by stage; `default` is the fallback) ---
 
   # CORS: currently wildcard ('*') for all stages.
@@ -121,6 +128,7 @@ functions:
     events:
       - httpApi: { path: "/api/v1/auth/login", method: post }
       - httpApi: { path: "/api/v1/auth/refresh", method: post }
+      - httpApi: { path: "/api/v1/auth/forgot-password", method: post }
       - httpApi: { path: "/api/v1/auth/set-password", method: post }
       - httpApi: { path: "/api/v1/auth/me", method: get }
 
@@ -138,6 +146,7 @@ functions:
       - httpApi: { path: "/api/v1/sites/{site_id}/users", method: get }
       - httpApi: { path: "/api/v1/sites/{site_id}/users", method: post }
       - httpApi: { path: "/api/v1/sites/{site_id}/users/{user_id}", method: delete }
+      - httpApi: { path: "/api/v1/sites/{site_id}/cameras", method: get }
       - httpApi: { path: "/api/v1/sites/{site_id}/audit-log", method: get }
 
   admin:
@@ -159,6 +168,7 @@ functions:
       - httpApi: { path: "/api/v1/admin/users", method: put }
       - httpApi: { path: "/api/v1/admin/users/{user_id}", method: delete }
       - httpApi: { path: "/api/v1/admin/test-email", method: post }
+      - httpApi: { path: "/api/v1/admin/test-alert", method: post }
 
   webhooks:
     handler: src/handlers/webhooks.handler

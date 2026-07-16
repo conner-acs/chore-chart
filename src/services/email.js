@@ -4,6 +4,12 @@ import { getOptionalSecret } from "../lib/secrets.js";
 // Production uses Amazon SES (IAM-authenticated, co-located with the backend);
 // Mailtrap remains for local/dev sandbox capture. Sending is best-effort and
 // never throws into the request path (mirrors app/services/email.py).
+//
+// Resilience: when SES is the primary provider and a send fails (e.g. the
+// sending domain isn't DKIM-verified yet, or SES is throttled/down), delivery
+// automatically FALLS BACK to Mailtrap so transactional mail — invites, password
+// resets, alerts — still goes out. Requires mailtrapApiToken to be configured;
+// otherwise both providers report failure and the caller sees sent: false.
 
 const cfg = {
   provider: (process.env.EMAIL_PROVIDER || "mailtrap").toLowerCase(),
@@ -97,14 +103,34 @@ async function deliverViaMailtrap({ toEmail, subject, text, html, category }) {
   }
 }
 
-// Dispatch to the configured provider. Returns rich detail; never throws.
+// Dispatch to the configured provider, falling back to Mailtrap if SES fails.
+// Returns rich detail; never throws.
 export async function deliver(msg) {
-  const provider = cfg.provider;
-  const from = provider === "ses" ? cfg.sesFrom : cfg.mailtrapSenderEmail;
-  const result =
-    provider === "ses" ? await deliverViaSes(msg) : await deliverViaMailtrap(msg);
+  const primary = cfg.provider;
+  let provider = primary;
+  let result =
+    primary === "ses" ? await deliverViaSes(msg) : await deliverViaMailtrap(msg);
+
+  // SES → Mailtrap fallback: keep mail flowing while SES/DKIM is unavailable.
+  if (!result.sent && primary === "ses") {
+    console.warn(
+      `email via ses failed (${result.error}); falling back to mailtrap: ${msg.subject}`
+    );
+    const fallback = await deliverViaMailtrap(msg);
+    if (fallback.sent) {
+      result = { ...fallback, fellBackFrom: "ses", sesError: result.error };
+      provider = "mailtrap";
+    } else {
+      // Both failed — surface both errors so the cause is diagnosable.
+      result = { sent: false, error: `ses: ${result.error}; mailtrap: ${fallback.error}` };
+      provider = "ses+mailtrap";
+    }
+  }
+
+  const from = provider === "mailtrap" ? cfg.mailtrapSenderEmail : cfg.sesFrom;
   if (result.sent) {
-    console.info(`email sent via ${provider} to ${msg.toEmail}: ${msg.subject}`);
+    const via = result.fellBackFrom ? `${provider} (fallback from ${result.fellBackFrom})` : provider;
+    console.info(`email sent via ${via} to ${msg.toEmail}: ${msg.subject}`);
   } else {
     console.warn(`email not sent via ${provider} (${result.error}): ${msg.subject}`);
   }
@@ -136,6 +162,90 @@ export async function sendSetPasswordEmail({ toEmail, fullName, token }) {
     "<p>If you didn't expect this, you can ignore this email.</p>" +
     "<p>— The SafeDay team</p>";
   return sendEmail({ toEmail, subject, text, html, category: "account-invite" });
+}
+
+// User-initiated password reset. Reuses the same scoped, single-use set-password
+// token + /set-password.html page as the invite flow — only the copy differs.
+export async function sendPasswordResetEmail({ toEmail, fullName, token }) {
+  const link = `${cfg.publicBaseUrl.replace(/\/$/, "")}/set-password.html?token=${encodeURIComponent(token)}`;
+  const firstName = escHtml((fullName || "there").split(" ")[0]);
+  const subject = "Reset your SafeDay password";
+  const text =
+    `Hi ${firstName},\n\n` +
+    "We received a request to reset your SafeDay password. Use the link below to " +
+    "choose a new one (it expires soon and can only be used once):\n\n" +
+    `${link}\n\n` +
+    "If you didn't request this, you can safely ignore this email — your password " +
+    "won't change.\n\n— The SafeDay team";
+  const html =
+    `<p>Hi ${firstName},</p>` +
+    "<p>We received a request to reset your SafeDay password. Use the link below to " +
+    "choose a new one (it expires soon and can only be used once):</p>" +
+    `<p><a href="${link}">Reset your password</a></p>` +
+    "<p>If you didn't request this, you can safely ignore this email — your password " +
+    "won't change.</p>" +
+    "<p>— The SafeDay team</p>";
+  return sendEmail({ toEmail, subject, text, html, category: "password-reset" });
+}
+
+function escHtml(s) {
+  return String(s ?? "").replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]
+  );
+}
+function prettyLabel(l) {
+  return l ? String(l).replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()) : "";
+}
+
+// Notify a site admin that an alert needs their attention — either a fresh
+// escalation (an operator submitted it for review) or a conflict (a second
+// operator disagreed, so it now needs an admin's final decision). Best-effort.
+// @param {{toEmail,fullName,kind:"escalation"|"conflict",alert,siteName,actorName}}
+export async function sendAlertReviewEmail({
+  toEmail,
+  fullName,
+  kind,
+  alert,
+  siteName,
+  actorName,
+}) {
+  const isConflict = kind === "conflict";
+  const firstName = (fullName || "there").split(" ")[0];
+  const type = prettyLabel(alert.alert_type) || "Alert";
+  const link = `${cfg.publicBaseUrl.replace(/\/$/, "")}/command/${encodeURIComponent(alert.id)}`;
+  const subject = isConflict
+    ? `Action needed — conflicting review at ${siteName}`
+    : `Alert escalated for review — ${siteName}`;
+  const lead = isConflict
+    ? `A second operator disagreed with the proposed decision on a ${type} alert at ${siteName}. It needs a site administrator to make the final call.`
+    : `${actorName || "An operator"} escalated a ${type} alert at ${siteName} for review.`;
+
+  const facts = [
+    ["Site", siteName],
+    ["Alert type", type],
+    ["Camera", alert.camera_id || "—"],
+    ["Raised", alert.created_at],
+    ["Proposed decision", prettyLabel(alert.proposer_label) || "—"],
+  ];
+  if (isConflict) {
+    facts.push(["Disputed by", actorName || "—"]);
+    facts.push(["Disputed as", prettyLabel(alert.review_label) || "—"]);
+    if (alert.review_note) facts.push(["Reviewer note", alert.review_note]);
+  } else {
+    facts.push(["Escalated by", actorName || "—"]);
+  }
+
+  const text =
+    `Hi ${firstName},\n\n${lead}\n\n` +
+    facts.map(([k, v]) => `${k}: ${v}`).join("\n") +
+    `\n\nReview it: ${link}\n\n— SafeDay`;
+  const html =
+    `<p>Hi ${escHtml(firstName)},</p><p>${escHtml(lead)}</p><ul>` +
+    facts.map(([k, v]) => `<li><strong>${escHtml(k)}:</strong> ${escHtml(v)}</li>`).join("") +
+    `</ul><p><a href="${escHtml(link)}">Open the alert</a></p><p>— SafeDay</p>`;
+
+  return sendEmail({ toEmail, subject, text, html, category: "alert-review" });
 }
 
 // Send a diagnostic email to the address stored in the `testEmailTo` secret.

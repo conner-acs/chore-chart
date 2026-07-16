@@ -1,6 +1,9 @@
 import { createRouter, ROLE_RANK } from "../lib/middleware.js";
 import { HttpError } from "../lib/response.js";
 import { newId } from "../lib/ids.js";
+import { getSecret, getOrgNxCredentials } from "../lib/secrets.js";
+import { receiveAlert } from "./webhooks.js";
+import { userCanAccessSite, getAccessibleSiteIds } from "../lib/permissions.js";
 import { hashPassword, createSetPasswordToken } from "../lib/auth.js";
 import { encryptNxPassword, decryptNxPassword } from "../lib/fernet.js";
 import { NxWitnessClient, NxWitnessError } from "../services/nxWitness.js";
@@ -51,6 +54,7 @@ import {
   createSiteInOrgSchema,
   createUserSchema,
   updateUserSchema,
+  testAlertSchema,
 } from "../schemas/index.js";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -361,6 +365,100 @@ async function deleteUserAdmin({ params }) {
   await deleteUser(params.user_id);
 }
 
+// Settings "Send test alert" — accurately simulate an Nx webhook capture. Rather
+// than duplicating alert creation, it builds a webhook-shaped payload and invokes
+// the REAL webhook handler (receiveAlert) in-process, signed with the actual
+// webhook secret. So the alert flows through the identical path a live CV event
+// would: secret check -> site_token resolution -> putAlert -> WebSocket broadcast.
+// The endpoint itself is authed by the caller's JWT (site_admin+); the webhook
+// secret never leaves the backend.
+const TEST_ALERT_TYPES = [
+  "child_alone",
+  "person_alone_with_child",
+  "child_in_no_go_zone",
+  "blacklisted_vehicle",
+  "child_alone_with_adult",
+];
+
+// Resolve a real camera for the site by asking its Nx VMS (no hardcoded id).
+// Uses the org's whitelisted Nx credentials + the site's nx_host, and returns
+// the first configured device — for the test site that's the Art of Logic camera
+// reachable over the Tailscale funnel.
+async function resolveSiteCamera(site) {
+  const creds = await getOrgNxCredentials(site.organization_id);
+  if (!creds || !site.nx_host) {
+    throw new HttpError(
+      422,
+      "Site has no Nx credentials/host configured — can't resolve a camera for the alert"
+    );
+  }
+  let devices;
+  try {
+    const client = new NxWitnessClient({
+      host: site.nx_host,
+      username: creds.username,
+      password: creds.password,
+      tlsCert: site.nx_tls_cert,
+    });
+    devices = await client.listDevices();
+  } catch (err) {
+    if (err instanceof NxWitnessError) {
+      throw new HttpError(502, "The site's Nx VMS rejected the request (check credentials/host).");
+    }
+    throw new HttpError(502, "Could not reach the site's Nx VMS to resolve a camera.");
+  }
+  const cam = (devices || []).find((d) => d && d.id);
+  if (!cam) throw new HttpError(422, "No cameras configured on the site's Nx VMS.");
+  return cam.id;
+}
+
+async function testAlert({ user, body }) {
+  // Resolve a site the caller is allowed to push to.
+  let siteId = body.site_id;
+  if (siteId) {
+    if (!(await userCanAccessSite(user, siteId))) throw new HttpError(403, "Access denied");
+  } else {
+    const accessible = await getAccessibleSiteIds(user); // null = superuser (all)
+    if (accessible && accessible.length) {
+      siteId = accessible[0];
+    } else {
+      const all = await listAllSites();
+      if (all.length) siteId = all[0].id;
+    }
+  }
+  if (!siteId) throw new HttpError(422, "No site available to attach a test alert to");
+  const site = await getSite(siteId);
+  if (!site) throw new HttpError(404, "Site not found");
+  if (!site.site_token) {
+    throw new HttpError(422, "Site has no site_token — cannot simulate a webhook for it");
+  }
+
+  const type =
+    body.alert_type ||
+    TEST_ALERT_TYPES[Math.floor(Math.random() * TEST_ALERT_TYPES.length)];
+  // Camera comes from the site's VMS, not a constant (unless the caller pinned one).
+  const cameraId = body.camera_id || (await resolveSiteCamera(site));
+  const end = new Date();
+  const start = new Date(end.getTime() - 60_000); // 60s window (standard clip length)
+
+  // Simulate the CV device calling POST /api/v1/webhooks/alert: same body shape,
+  // signed with the real webhook secret, dispatched through receiveAlert().
+  const webhookBody = {
+    site_token: site.site_token,
+    camera_id: cameraId,
+    alert_type: type,
+    start_timestamp: start.toISOString(),
+    end_timestamp: end.toISOString(),
+    nx_bookmark_id: null,
+  };
+  const webhookSecret = await getSecret("webhookSecret");
+  const alert = await receiveAlert({
+    event: { headers: { "x-webhook-secret": webhookSecret } },
+    body: webhookBody,
+  });
+  return { ...alert, site_name: site.name };
+}
+
 export const handler = createRouter({
   "GET /api/v1/admin/organizations": { fn: listOrgs, auth: "superuser" },
   "POST /api/v1/admin/organizations": {
@@ -412,4 +510,10 @@ export const handler = createRouter({
   "PUT /api/v1/admin/users": { fn: updateUser, auth: "user", schema: updateUserSchema },
   "DELETE /api/v1/admin/users/{user_id}": { fn: deleteUserAdmin, auth: "superuser", status: 204 },
   "POST /api/v1/admin/test-email": { fn: testEmail, auth: "superuser" },
+  "POST /api/v1/admin/test-alert": {
+    fn: testAlert,
+    auth: "site_admin",
+    schema: testAlertSchema,
+    status: 201,
+  },
 });

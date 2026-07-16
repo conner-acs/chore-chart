@@ -45,6 +45,13 @@ echo "  profile '$PROFILE' → account $ACCOUNT, region $REGION, stage $STAGE"
 # ---- 1. resolve secret values ------------------------------------------
 # Pull from .env.secrets (gitignored) or the environment; generate what's absent.
 if [ -f .env.secrets ]; then
+  # Guard before sourcing: every non-comment/non-blank line must be KEY=value.
+  # A JSON value pasted multi-line (or unquoted) otherwise makes `source` try to
+  # run it, failing with cryptic errors like `username:: command not found`.
+  BAD_LINE=$(grep -nvE '^[[:space:]]*#|^[[:space:]]*$|^[A-Za-z_][A-Za-z0-9_]*=' .env.secrets | head -1 || true)
+  if [ -n "$BAD_LINE" ]; then
+    die ".env.secrets line ${BAD_LINE%%:*} is not a KEY=value line. JSON values (e.g. NX_CREDENTIALS_JSON) must be a SINGLE line wrapped in SINGLE QUOTES, no // comments. See .env.secrets.example."
+  fi
   note "Loading secret values from .env.secrets"
   set -a; . ./.env.secrets; set +a
 fi
@@ -54,6 +61,19 @@ NX_KEY="${NX_CREDENTIAL_ENCRYPTION_KEY:-}"
 MAILTRAP="${MAILTRAP_API_TOKEN:-}"
 
 [ -n "$NX_KEY" ] || echo "  ⚠ NX_CREDENTIAL_ENCRYPTION_KEY is empty — Nx test-connection/cameras/footage will 502. Set it in .env.secrets if migrating encrypted Nx passwords." >&2
+
+# Per-org Nx Witness credentials as a JSON map: {"<org_id>":{"username":"..","password":".."}}.
+# Stored in the secret bundle under `nxCredentials`; read by the footage-history path.
+# Defaults to an empty map so a deploy without creds still succeeds (footage history
+# then returns 502 "No Nx credentials configured" until an org is populated).
+# NB: don't inline the default as ${VAR:-{}} — bash treats the first '}' as the
+# end of the expansion and appends the second '}' literally, corrupting any set
+# value into '…}}'. Default explicitly instead.
+NX_CREDENTIALS_JSON="${NX_CREDENTIALS_JSON:-}"
+[ -n "$NX_CREDENTIALS_JSON" ] || NX_CREDENTIALS_JSON='{}'
+# One credential set whitelisted to several orgs: {"username","password","orgIds":[..]}.
+# Stored under `nxSharedCredentials`; per-org entries in nxCredentials override it.
+NX_SHARED_CREDENTIALS_JSON="${NX_SHARED_CREDENTIALS_JSON:-null}"
 
 # ---- 2. deploy ----------------------------------------------------------
 note "Deploying stack 'safeday-$STAGE' to profile '$PROFILE'…"
@@ -68,10 +88,14 @@ TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
 if command -v jq >/dev/null; then
   jq -n --arg sk "$SECRET_KEY" --arg nx "$NX_KEY" --arg wh "$WEBHOOK_SECRET" --arg mt "$MAILTRAP" \
-    '{secretKey:$sk, nxCredentialEncryptionKey:$nx, webhookSecret:$wh, mailtrapApiToken:$mt}' > "$TMP"
+    --argjson nxc "$NX_CREDENTIALS_JSON" --argjson nxs "$NX_SHARED_CREDENTIALS_JSON" \
+    '{secretKey:$sk, nxCredentialEncryptionKey:$nx, webhookSecret:$wh, mailtrapApiToken:$mt, nxCredentials:$nxc, nxSharedCredentials:$nxs}' > "$TMP"
 else
   # Fallback JSON builder (values are keys/tokens with no quotes/backslashes).
-  printf '{"secretKey":"%s","nxCredentialEncryptionKey":"%s","webhookSecret":"%s","mailtrapApiToken":"%s"}' \
+  # nxCredentials/nxSharedCredentials are real JSON, so they need jq.
+  { [ "$NX_CREDENTIALS_JSON" = "{}" ] && [ "$NX_SHARED_CREDENTIALS_JSON" = "null" ]; } \
+    || die "jq is required to set NX_CREDENTIALS_JSON / NX_SHARED_CREDENTIALS_JSON (please install jq)"
+  printf '{"secretKey":"%s","nxCredentialEncryptionKey":"%s","webhookSecret":"%s","mailtrapApiToken":"%s","nxCredentials":{},"nxSharedCredentials":null}' \
     "$SECRET_KEY" "$NX_KEY" "$WEBHOOK_SECRET" "$MAILTRAP" > "$TMP"
 fi
 

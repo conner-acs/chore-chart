@@ -20,6 +20,7 @@ export class NxWitnessClient {
     this.username = username;
     this.password = password;
     this.tlsCert = tlsCert;
+    this._token = null; // cached session token, refreshed on 401
   }
 
   _agent() {
@@ -32,10 +33,18 @@ export class NxWitnessClient {
 
   _request(method, path, { headers = {}, body = null, timeout = CHUNK_TIMEOUT_MS } = {}) {
     const url = new URL(`${this.host}${path}`);
+    // Always frame the body with an explicit Content-Length. Without it, Node's
+    // req.write()+end() sends the POST with no length header, and Nx (behind the
+    // Tailscale funnel) rejects it with 400 {"errorId":"badRequest","errorString":
+    // "Missing request content"} — the request looks bodyless to the server.
+    const reqHeaders = { ...headers };
+    if (body != null && reqHeaders["Content-Length"] == null) {
+      reqHeaders["Content-Length"] = Buffer.byteLength(body);
+    }
     return new Promise((resolve, reject) => {
       const req = https.request(
         url,
-        { method, headers, agent: this._agent(), timeout },
+        { method, headers: reqHeaders, agent: this._agent(), timeout },
         (res) => resolve(res)
       );
       req.on("error", reject);
@@ -52,7 +61,8 @@ export class NxWitnessClient {
     return text ? JSON.parse(text) : {};
   }
 
-  async _getSessionToken() {
+  async _getSessionToken(forceRefresh = false) {
+    if (this._token && !forceRefresh) return this._token;
     const res = await this._request("POST", "/rest/v2/login/sessions", {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -65,7 +75,31 @@ export class NxWitnessClient {
       throw new NxWitnessError(`Nx Witness authentication failed (${res.statusCode})`);
     }
     const data = await this._readJson(res);
-    return data.token;
+    this._token = data.token;
+    return this._token;
+  }
+
+  // Perform an authenticated request, transparently re-authenticating once if
+  // the VMS rejects the token with 401. Nx session tokens are short-lived, so a
+  // client can hold a token Nx has already expired (or one invalidated
+  // server-side); on 401 we drop the cached token, log in again, and replay the
+  // request exactly once. A second 401 is returned to the caller unchanged so it
+  // surfaces as a real auth failure rather than looping.
+  async _authedRequest(method, path, { timeout = CHUNK_TIMEOUT_MS } = {}) {
+    const token = await this._getSessionToken();
+    let res = await this._request(method, path, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeout,
+    });
+    if (res.statusCode === 401) {
+      res.resume(); // discard the rejected body so the socket can close
+      const fresh = await this._getSessionToken(true);
+      res = await this._request(method, path, {
+        headers: { Authorization: `Bearer ${fresh}` },
+        timeout,
+      });
+    }
+    return res;
   }
 
   // Authenticate only — proves credentials work. The session token never leaves
@@ -75,10 +109,7 @@ export class NxWitnessClient {
   }
 
   async listDevices() {
-    const token = await this._getSessionToken();
-    const res = await this._request("GET", "/rest/v2/devices", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await this._authedRequest("GET", "/rest/v2/devices");
     if (res.statusCode !== 200) {
       throw new NxWitnessError(`Nx Witness device list failed (${res.statusCode})`);
     }
@@ -90,11 +121,10 @@ export class NxWitnessClient {
   // Returns the raw MP4 response stream (a Readable) for the given camera/time
   // window. The caller pipes it to the client. Timestamps are epoch ms.
   async exportClipStream(cameraId, startMs, endMs) {
-    const token = await this._getSessionToken();
-    const res = await this._request(
+    const res = await this._authedRequest(
       "GET",
       `/media/${cameraId}.mp4?pos=${startMs}&endPos=${endMs}`,
-      { headers: { Authorization: `Bearer ${token}` }, timeout: 300000 }
+      { timeout: 300000 }
     );
     if (res.statusCode !== 200) {
       throw new NxWitnessError(`Nx Witness export failed (${res.statusCode})`);
