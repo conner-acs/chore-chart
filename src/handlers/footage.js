@@ -21,8 +21,8 @@ import { NxWitnessClient, NxWitnessError } from "../services/nxWitness.js";
 // 10 MB / 29 s API Gateway limits. `awslambda` is a runtime global; CORS is set
 // on the Function URL (serverless.yml url.cors).
 
-// Footage-history window limits. Clips default to 60s — the standard alert clip
-// length across the backend, seed data, and the production architecture brief —
+// Footage-history window limits. Clips default to 60s - the standard alert clip
+// length across the backend, seed data, and the production architecture brief -
 // and are capped so a single request can't pull an unbounded archive export.
 const DEFAULT_DURATION_MS = 60 * 1000;
 const MAX_WINDOW_MS = 10 * 60 * 1000;
@@ -56,7 +56,7 @@ function parseWindow(q) {
   return { startMs, endMs };
 }
 
-// GET /footage/history — stream an archived clip for a camera + time window.
+// GET /footage/history - stream an archived clip for a camera + time window.
 // Auth flow, as requested: SafeDay bearer token -> resolve user -> restrict to
 // approved footage domains -> confirm the user can access the site -> look up
 // that organization's Nx credentials in Secrets Manager -> stream the clip.
@@ -83,7 +83,7 @@ async function resolveHistoryStream(event) {
     throw new HttpError(502, "No Nx credentials configured for this organization");
   }
 
-  // Audit the access before streaming — logged even if the client disconnects.
+  // Audit the access before streaming - logged even if the client disconnects.
   await putFootageLog({
     id: newId(),
     alert_id: null,
@@ -117,7 +117,7 @@ async function resolveHistoryStream(event) {
 }
 
 async function resolveClipStream(event) {
-  // Function URLs have no path templating — take the last path segment.
+  // Function URLs have no path templating - take the last path segment.
   const path = event.rawPath || event.requestContext?.http?.path || "";
   const alertId = decodeURIComponent(path.split("/").filter(Boolean).pop() || "");
 
@@ -136,7 +136,7 @@ async function resolveClipStream(event) {
 
   const site = await getSite(alert.site_id);
 
-  // Log access before streaming — the record exists even if the client
+  // Log access before streaming - the record exists even if the client
   // disconnects mid-stream.
   await putFootageLog({
     id: newId(),

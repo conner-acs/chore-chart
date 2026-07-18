@@ -10,7 +10,7 @@ cd "$(dirname "$0")"
 
 # Config is pulled from the environment. Copy .env.test.example -> .env.test and
 # fill in your values (credentials, deployed URL, secrets); .env.test is
-# gitignored so nothing sensitive is committed. The file provides DEFAULTS only —
+# gitignored so nothing sensitive is committed. The file provides DEFAULTS only -
 # an explicitly-exported variable always wins, so you can override inline:
 #   WEBHOOK_SECRET=REPLACE_ME SAFEDAY_EMAIL=you@... ./test.sh
 if [ -f .env.test ]; then
@@ -26,7 +26,7 @@ WEBHOOK_SECRET="${WEBHOOK_SECRET:-REPLACE_ME}"          # matches the Secrets Ma
 JWT_SECRET="${SAFEDAY_JWT_SECRET:-REPLACE_ME}"          # matches the Secrets Manager stub
 USER_ID="${SAFEDAY_USER_ID:-d53f5b70-0a39-4c72-9af6-cdde6941b8cd}"  # migrated superuser
 SITE_TOKEN="${SAFEDAY_SITE_TOKEN:-acs-child-centre}"
-# Default kept on its own line — a brace-wrapped UUID inside a ${:-default}
+# Default kept on its own line - a brace-wrapped UUID inside a ${:-default}
 # expansion would have its own '}' close the expansion early.
 CAMERA_ID="{b7e8f1a2-3c4d-5e6f-7a8b-9c0d1e2f3a4b}"
 [ -n "${SAFEDAY_CAMERA_ID:-}" ] && CAMERA_ID="$SAFEDAY_CAMERA_ID"
@@ -68,7 +68,7 @@ if [ "$ROLE" = "superuser" ]; then
   [ "$ns" -gt 0 ] 2>/dev/null || fail "expected sites"
   pass "$ns sites"
 else
-  echo "[2-3] admin endpoints — skipped (logged-in role '$ROLE' is not superuser)"
+  echo "[2-3] admin endpoints - skipped (logged-in role '$ROLE' is not superuser)"
   echo "      verifying admin route is forbidden for this role"
   code=$(curl -s -o /dev/null -w '%{http_code}' "$API/api/v1/admin/users" -H "$AUTH")
   [ "$code" = "403" ] || fail "expected 403 on /admin/users for $ROLE, got $code"
@@ -124,10 +124,10 @@ if [ "$ROLE" = "superuser" ]; then
     pass "test email sent via $prov to $to"
   else
     # Endpoint works; delivery may be pending SES identity verification / prod access.
-    pass "test-email endpoint OK (provider=$prov) — not delivered yet: ${err:-unknown}"
+    pass "test-email endpoint OK (provider=$prov) - not delivered yet: ${err:-unknown}"
   fi
 else
-  echo "      skipped — needs superuser (logged in as '$ROLE')"
+  echo "      skipped - needs superuser (logged in as '$ROLE')"
 fi
 
 printf '\n\033[32mAll checks passed.\033[0m\n'

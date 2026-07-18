@@ -1,4 +1,4 @@
-// Response shapers — mirror the Pydantic response_models so the existing
+// Response shapers - mirror the Pydantic response_models so the existing
 // frontend sees identical JSON. Each picks an explicit field set and coalesces
 // missing/optional values to null (DynamoDB omits undefined attributes).
 

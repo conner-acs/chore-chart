@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Deploy safeday-serverless to a chosen AWS profile AND populate its Secrets
-# Manager secret — safe to run from a brand-new terminal.
+# Manager secret - safe to run from a brand-new terminal.
 #
 # Usage:
 #   scripts/deploy-profile.sh <aws-profile> [stage] [region]
@@ -11,10 +11,10 @@
 #
 # Secret values come from scripts/../.env.secrets (gitignored) or the environment;
 # anything missing is generated (secretKey + webhookSecret) so the stack is usable
-# immediately. Values are written to the secret via a temp file — never on the
+# immediately. Values are written to the secret via a temp file - never on the
 # command line, never echoed.
 #
-# Requires: aws CLI v2, node/npx (Serverless Framework v4 — be logged in via
+# Requires: aws CLI v2, node/npx (Serverless Framework v4 - be logged in via
 # `npx serverless login` or have SERVERLESS_ACCESS_KEY set), openssl, bash.
 set -euo pipefail
 cd "$(dirname "$0")/.."   # repo root
@@ -60,13 +60,13 @@ WEBHOOK_SECRET="${WEBHOOK_SECRET:-$(openssl rand -hex 32)}"
 NX_KEY="${NX_CREDENTIAL_ENCRYPTION_KEY:-}"
 MAILTRAP="${MAILTRAP_API_TOKEN:-}"
 
-[ -n "$NX_KEY" ] || echo "  ⚠ NX_CREDENTIAL_ENCRYPTION_KEY is empty — Nx test-connection/cameras/footage will 502. Set it in .env.secrets if migrating encrypted Nx passwords." >&2
+[ -n "$NX_KEY" ] || echo "  ⚠ NX_CREDENTIAL_ENCRYPTION_KEY is empty - Nx test-connection/cameras/footage will 502. Set it in .env.secrets if migrating encrypted Nx passwords." >&2
 
 # Per-org Nx Witness credentials as a JSON map: {"<org_id>":{"username":"..","password":".."}}.
 # Stored in the secret bundle under `nxCredentials`; read by the footage-history path.
 # Defaults to an empty map so a deploy without creds still succeeds (footage history
 # then returns 502 "No Nx credentials configured" until an org is populated).
-# NB: don't inline the default as ${VAR:-{}} — bash treats the first '}' as the
+# NB: don't inline the default as ${VAR:-{}} - bash treats the first '}' as the
 # end of the expansion and appends the second '}' literally, corrupting any set
 # value into '…}}'. Default explicitly instead.
 NX_CREDENTIALS_JSON="${NX_CREDENTIALS_JSON:-}"
@@ -114,7 +114,7 @@ echo
 echo "  Stack:  safeday-$STAGE   (account $ACCOUNT, $REGION)"
 echo "  Secret: $SECRET_ID"
 echo
-echo "  Next — load the data into this account's DynamoDB:"
+echo "  Next - load the data into this account's DynamoDB:"
 echo "    AWS_PROFILE=$PROFILE STAGE=$STAGE AWS_REGION=$REGION npm run migrate"
 echo
 echo "  Endpoints:"

@@ -2,7 +2,7 @@
 // operator UI resolves the camera name ("Hallway-Facing-Boardroom") instead of
 // falling back to a placeholder id. Only updates rows whose camera_id is the old
 // dump placeholder; every other field is left untouched. Idempotent (safe to
-// re-run — matching rows shrink to zero).
+// re-run - matching rows shrink to zero).
 //
 // Usage:
 //   AWS_PROFILE=417183877817_EngineerAdmin AWS_REGION=ap-southeast-2 \

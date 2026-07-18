@@ -5,9 +5,9 @@ import { URL } from "url";
 // (/rest/v2/login/sessions, /rest/v2/devices, /media/{id}.mp4).
 //
 // Uses node:https directly for two reasons the global fetch can't easily give us:
-//  1. TLS control — Nx servers use self-signed certs, so we disable verification
+//  1. TLS control - Nx servers use self-signed certs, so we disable verification
 //     (or pin the site's PEM in nx_tls_cert), matching the Python httpx client.
-//  2. True streaming — export_clip returns the raw response stream so the footage
+//  2. True streaming - export_clip returns the raw response stream so the footage
 //     Lambda can pipe MP4 chunks straight to the client (response streaming).
 
 const CHUNK_TIMEOUT_MS = 10000;
@@ -36,7 +36,7 @@ export class NxWitnessClient {
     // Always frame the body with an explicit Content-Length. Without it, Node's
     // req.write()+end() sends the POST with no length header, and Nx (behind the
     // Tailscale funnel) rejects it with 400 {"errorId":"badRequest","errorString":
-    // "Missing request content"} — the request looks bodyless to the server.
+    // "Missing request content"} - the request looks bodyless to the server.
     const reqHeaders = { ...headers };
     if (body != null && reqHeaders["Content-Length"] == null) {
       reqHeaders["Content-Length"] = Buffer.byteLength(body);
@@ -102,7 +102,7 @@ export class NxWitnessClient {
     return res;
   }
 
-  // Authenticate only — proves credentials work. The session token never leaves
+  // Authenticate only - proves credentials work. The session token never leaves
   // the backend.
   async verifyConnection() {
     await this._getSessionToken();

@@ -23,7 +23,7 @@ import {
 
 async function login({ body }) {
   const user = await getUserByEmail(body.email);
-  // Deliberately vague — don't reveal whether the email exists.
+  // Deliberately vague - don't reveal whether the email exists.
   if (!user || !verifyPassword(body.password, user.hashed_password)) {
     throw new HttpError(401, "Invalid credentials");
   }
@@ -55,7 +55,7 @@ async function refresh({ body }) {
 // Start a self-service password reset. Emails a scoped, single-use link (the
 // same token + /set-password.html page the invite flow uses) via SES.
 // Deliberately always returns the same 200 response whether or not the email
-// maps to an account — no user enumeration, and delivery failures are swallowed.
+// maps to an account - no user enumeration, and delivery failures are swallowed.
 async function forgotPassword({ body }) {
   const generic = {
     detail: "If an account exists for that email, a password reset link is on its way.",
@@ -70,7 +70,7 @@ async function forgotPassword({ body }) {
         token,
       });
     } catch (err) {
-      // Never surface delivery/token errors to the caller — that would leak
+      // Never surface delivery/token errors to the caller - that would leak
       // whether the address exists and how the backend behaves.
       console.warn("password reset email failed:", err.message);
     }
@@ -104,7 +104,7 @@ async function setPassword({ body }) {
 
 async function me({ user }) {
   // footage_enabled tells the client whether live Nx footage can be pulled for
-  // this user's organization — i.e. the org is whitelisted in the Secrets
+  // this user's organization - i.e. the org is whitelisted in the Secrets
   // Manager Nx credentials (per-org nxCredentials, or nxSharedCredentials.orgIds).
   // getOrgNxCredentials performs exactly that cross-reference. The client ANDs
   // this with its Camera Connection (Tailscale funnel) toggle.

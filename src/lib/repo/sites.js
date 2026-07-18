@@ -12,7 +12,7 @@ const T = TABLES.sites;
 export const getSite = async (id) =>
   (await ddb.send(new GetCommand({ TableName: T, Key: { id } }))).Item || null;
 
-// site_token is unique — used by the webhook to resolve a site, and to enforce
+// site_token is unique - used by the webhook to resolve a site, and to enforce
 // uniqueness on create. Backed by the `site_token-index` GSI.
 export const getSiteByToken = async (siteToken) => {
   const { Items = [] } = await ddb.send(

@@ -1,11 +1,11 @@
-# SES email setup (production) — safeday.com.au
+# SES email setup (production) - safeday.com.au
 
 Production email (stage `prod`, region `ap-southeast-2`, account `417183877817`)
 sends via **Amazon SES** instead of Mailtrap. `EMAIL_PROVIDER=ses`,
 `SES_FROM=no-reply@safeday.com.au`. This doc tracks what's done and the manual
 steps that remain (DNS + SES production access).
 
-## Existing DNS (Cloudflare) — already in place
+## Existing DNS (Cloudflare) - already in place
 
 `safeday.com.au` DNS is on **Cloudflare**; inbound mail is **Microsoft 365**.
 Relevant records found:
@@ -17,17 +17,17 @@ So only **DKIM** remains for SES domain verification.
 
 ## Done (in AWS, ap-southeast-2)
 
-- SES **domain identity** `safeday.com.au` created (Easy DKIM, RSA-2048) — status `PENDING`.
-- SES **email identity** `conner@ascensioncloudsolutions.com` created — verification
+- SES **domain identity** `safeday.com.au` created (Easy DKIM, RSA-2048) - status `PENDING`.
+- SES **email identity** `conner@ascensioncloudsolutions.com` created - verification
   email sent (must be clicked; required because SES is in the **sandbox**).
 - Lambda role granted `ses:SendEmail`/`SendRawEmail`, restricted to
   `From: *@safeday.com.au`.
 - `testEmailTo=conner@ascensioncloudsolutions.com` added to the `safeday/prod/app`
   secret (existing keys preserved).
-- `POST /api/v1/admin/test-email` (superuser) deployed — fires a test email to
+- `POST /api/v1/admin/test-email` (superuser) deployed - fires a test email to
   `testEmailTo` and returns `{provider, from, to, sent, messageId?, error?}`.
 
-## TODO 1 — Add the 3 DKIM CNAME records to Cloudflare
+## TODO 1 - Add the 3 DKIM CNAME records to Cloudflare
 
 Add these as **CNAME**, **DNS only (grey cloud, NOT proxied)**:
 
@@ -53,7 +53,7 @@ AWS_PROFILE=417183877817_EngineerAdmin aws sesv2 get-email-identity \
   --query '{verified:VerifiedForSendingStatus, dkim:DkimAttributes.Status}'
 ```
 
-## TODO 2 — Verify the test recipient
+## TODO 2 - Verify the test recipient
 
 Click the verification link in the email AWS sent to
 `conner@ascensioncloudsolutions.com`. Re-send if needed:
@@ -65,7 +65,7 @@ AWS_PROFILE=417183877817_EngineerAdmin aws sesv2 create-email-identity \
 
 (While SES is in the sandbox, **every recipient** must be a verified identity.)
 
-## TODO 3 — Request SES production access (exit sandbox)
+## TODO 3 - Request SES production access (exit sandbox)
 
 Sandbox = 200 emails/day, 1/sec, and you can only send to verified addresses.
 To email real operators, request production access (Console → SES → Account

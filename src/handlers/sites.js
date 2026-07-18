@@ -86,7 +86,7 @@ async function getAuditLog({ user, params, query }) {
 // Camera id -> name for a site, resolved live from its Nx VMS. Accessible to any
 // user permitted on the site (unlike the superuser-only admin cameras endpoint),
 // so the operator UI can label alerts/notifications with the real camera name
-// instead of a raw id. Returns [] if the VMS isn't configured/reachable — the
+// instead of a raw id. Returns [] if the VMS isn't configured/reachable - the
 // client then falls back to the camera id, never a fabricated label.
 async function listSiteCameras({ user, params }) {
   if (!(await userCanAccessSite(user, params.site_id))) {
@@ -108,7 +108,7 @@ async function listSiteCameras({ user, params }) {
       .filter((d) => d && d.id)
       .map((d) => ({ id: d.id, name: d.name || d.id }));
   } catch (err) {
-    // Any failure (VMS down, bad creds) yields the id fallback — never fail the UI.
+    // Any failure (VMS down, bad creds) yields the id fallback - never fail the UI.
     console.warn("listSiteCameras: VMS unreachable:", err.message);
     return [];
   }

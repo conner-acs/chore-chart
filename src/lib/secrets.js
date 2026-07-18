@@ -72,7 +72,7 @@ export async function getSecret(key) {
   return value;
 }
 
-// Optional secrets (e.g. Mailtrap token) — returns undefined instead of throwing.
+// Optional secrets (e.g. Mailtrap token) - returns undefined instead of throwing.
 export async function getOptionalSecret(key) {
   const secrets = await load();
   const value = secrets[key];

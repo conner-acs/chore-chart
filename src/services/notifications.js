@@ -26,7 +26,7 @@ async function sendToConnection(api, connectionId, message) {
       })
     );
   } catch (err) {
-    // 410 Gone — the client disconnected without a clean $disconnect. Prune it.
+    // 410 Gone - the client disconnected without a clean $disconnect. Prune it.
     if (err?.$metadata?.httpStatusCode === 410) {
       await deleteConnection(connectionId);
     } else {

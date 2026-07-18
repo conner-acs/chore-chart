@@ -59,7 +59,7 @@ import {
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-// Try to authenticate to a site's Nx server. Never throws — returns [ok, detail].
+// Try to authenticate to a site's Nx server. Never throws - returns [ok, detail].
 // Also exercises the stored-credential decrypt path end to end.
 async function checkNxConnection(site) {
   try {
@@ -348,7 +348,7 @@ async function getSitesByIdsForSummary(ids) {
   return sites.filter(Boolean);
 }
 
-// Fire a diagnostic email to the `testEmailTo` secret — verifies the email
+// Fire a diagnostic email to the `testEmailTo` secret - verifies the email
 // pipeline (SES in prod) end to end. Returns the provider/result detail.
 async function testEmail() {
   const result = await sendTestEmail();
@@ -365,7 +365,7 @@ async function deleteUserAdmin({ params }) {
   await deleteUser(params.user_id);
 }
 
-// Settings "Send test alert" — accurately simulate an Nx webhook capture. Rather
+// Settings "Send test alert" - accurately simulate an Nx webhook capture. Rather
 // than duplicating alert creation, it builds a webhook-shaped payload and invokes
 // the REAL webhook handler (receiveAlert) in-process, signed with the actual
 // webhook secret. So the alert flows through the identical path a live CV event
@@ -382,14 +382,14 @@ const TEST_ALERT_TYPES = [
 
 // Resolve a real camera for the site by asking its Nx VMS (no hardcoded id).
 // Uses the org's whitelisted Nx credentials + the site's nx_host, and returns
-// the first configured device — for the test site that's the Art of Logic camera
+// the first configured device - for the test site that's the Art of Logic camera
 // reachable over the Tailscale funnel.
 async function resolveSiteCamera(site) {
   const creds = await getOrgNxCredentials(site.organization_id);
   if (!creds || !site.nx_host) {
     throw new HttpError(
       422,
-      "Site has no Nx credentials/host configured — can't resolve a camera for the alert"
+      "Site has no Nx credentials/host configured - can't resolve a camera for the alert"
     );
   }
   let devices;
@@ -430,7 +430,7 @@ async function testAlert({ user, body }) {
   const site = await getSite(siteId);
   if (!site) throw new HttpError(404, "Site not found");
   if (!site.site_token) {
-    throw new HttpError(422, "Site has no site_token — cannot simulate a webhook for it");
+    throw new HttpError(422, "Site has no site_token - cannot simulate a webhook for it");
   }
 
   const type =

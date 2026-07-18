@@ -6,7 +6,7 @@ import Joi from "joi";
 
 export const ROLES = ["operator", "site_admin", "superuser"];
 
-// Decision targets — unprocessed is not a valid decision (see app/schemas/alert.py).
+// Decision targets - unprocessed is not a valid decision (see app/schemas/alert.py).
 const DECISION_STATUSES = ["discarded", "submitted_for_review", "incident"];
 
 // Nx Witness camera IDs: UUID, optionally brace-wrapped.
@@ -32,7 +32,7 @@ export const forgotPasswordSchema = Joi.object({
   email: email.required(),
 }).options({ stripUnknown: true });
 
-// Settings "Send test alert" — all fields optional; the handler fills defaults.
+// Settings "Send test alert" - all fields optional; the handler fills defaults.
 export const testAlertSchema = Joi.object({
   site_id: Joi.string().uuid(),
   camera_id: Joi.string(),
@@ -69,7 +69,7 @@ export const alertDecisionSchema = Joi.object({
   status: Joi.string().valid(...DECISION_STATUSES).required().messages({
     "any.only": "status must be 'discarded', 'submitted_for_review', or 'incident'",
   }),
-  // The proposed/agreed/resolved label — always required.
+  // The proposed/agreed/resolved label - always required.
   decision_label: Joi.string().valid(...DECISION_LABELS).required().messages({
     "any.only": "decision_label must be 'false_alarm', 'false_positive', or 'genuine'",
   }),
@@ -101,13 +101,13 @@ const siteFields = {
   longitude: Joi.number().allow(null),
 };
 
-// POST /admin/sites — organization in the body.
+// POST /admin/sites - organization in the body.
 export const createSiteSchema = Joi.object({
   ...siteFields,
   organization_id: uuid.required(),
 });
 
-// POST /admin/organizations/{id}/sites — org comes from the URL path.
+// POST /admin/organizations/{id}/sites - org comes from the URL path.
 export const createSiteInOrgSchema = Joi.object(siteFields);
 
 export const createUserSchema = Joi.object({

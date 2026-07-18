@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fire one simulated Nx detection at the prod webhook so a fresh alert shows up
-# in the frontend. Designed to run from cron — needs only the webhook secret
+# in the frontend. Designed to run from cron - needs only the webhook secret
 # (no AWS credentials). The alert_type embeds the unix timestamp at fire time so
 # each alert renders with a unique, time-stamped name.
 export PATH="/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"

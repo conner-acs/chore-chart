@@ -12,7 +12,7 @@ const T = TABLES.users;
 export const getUser = async (id) =>
   (await ddb.send(new GetCommand({ TableName: T, Key: { id } }))).Item || null;
 
-// email is unique — used for login and to enforce uniqueness. `email-index` GSI.
+// email is unique - used for login and to enforce uniqueness. `email-index` GSI.
 export const getUserByEmail = async (email) => {
   const { Items = [] } = await ddb.send(
     new QueryCommand({
@@ -43,7 +43,7 @@ export const listAllUsers = async () => {
   return Items.sort((a, b) => a.full_name.localeCompare(b.full_name));
 };
 
-// Superusers — used to fan out new-alert notifications (implicit all-site access).
+// Superusers - used to fan out new-alert notifications (implicit all-site access).
 export const listSuperusers = async () => {
   const { Items = [] } = await ddb.send(
     new ScanCommand({

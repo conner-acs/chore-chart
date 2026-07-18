@@ -91,7 +91,7 @@ const LABEL_TO_STATUS = {
   genuine: "incident",
 };
 
-// Pure decision state machine — no I/O, so it's directly unit-testable
+// Pure decision state machine - no I/O, so it's directly unit-testable
 // (see scripts/test-decision.mjs). Mutates and returns `alert`, plus the audit
 // `action` to log. Throws HttpError on a forbidden/invalid transition.
 //
@@ -135,7 +135,7 @@ export function applyDecision(alert, user, body, now) {
   // ---- unprocessed ----
   if (alert.status === "unprocessed") {
     if (isEscalate) {
-      // T1 — PROPOSE / escalate, recording the proposed label.
+      // T1 - PROPOSE / escalate, recording the proposed label.
       alert.status = "submitted_for_review";
       alert.proposer_id = user.id;
       alert.proposer_label = label;
@@ -151,7 +151,7 @@ export function applyDecision(alert, user, body, now) {
       alert.resolved_at = null;
       return "submitted_for_review";
     }
-    // T1' — direct resolution is admins only; operators must escalate.
+    // T1' - direct resolution is admins only; operators must escalate.
     if (!isAdmin) {
       throw new HttpError(
         403,
@@ -179,13 +179,13 @@ export function applyDecision(alert, user, body, now) {
       return resolveWithLabel(); // admin adjudicates
     }
 
-    if (isAdmin) return resolveWithLabel(); // T2 — 1-admin overrules
+    if (isAdmin) return resolveWithLabel(); // T2 - 1-admin overrules
 
     // Operator (different from proposer):
     if (label === alert.proposer_label) {
-      return resolveWithLabel(); // T2 — 2 operators agree on the label
+      return resolveWithLabel(); // T2 - 2 operators agree on the label
     }
-    // T3 — disagreement: flag conflicted, stays in review for an admin.
+    // T3 - disagreement: flag conflicted, stays in review for an admin.
     alert.conflicted = true;
     alert.review_note = note; // capture the dissent reason for the admin
     return "conflicted";
@@ -195,7 +195,7 @@ export function applyDecision(alert, user, body, now) {
   throw new HttpError(409, "Alert is already resolved");
 }
 
-// Email the site's admins when an alert needs their attention — a fresh
+// Email the site's admins when an alert needs their attention - a fresh
 // escalation (submitted_for_review) or a conflict raised by a second operator.
 // Best-effort: failures are logged and never surfaced to the decision call.
 // `kind` is "escalation" | "conflict". `actor` is the operator who acted.

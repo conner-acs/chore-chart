@@ -17,14 +17,14 @@ test("SES sends the user email-validation message to " + TO, async () => {
   const link = "https://safeday.com.au/set-password.html?token=demo-verification-token";
   const result = await deliver({
     toEmail: TO,
-    subject: "Welcome to SafeDay — verify your account & set your password",
+    subject: "Welcome to SafeDay - verify your account & set your password",
     text:
       "Hi there,\n\nYour SafeDay account has been created. Verify your email and " +
-      "set your password using the link below:\n\n" + link + "\n\n— The SafeDay team",
+      "set your password using the link below:\n\n" + link + "\n\n- The SafeDay team",
     html:
       "<p>Hi there,</p><p>Your SafeDay account has been created. Verify your email " +
       'and set your password using the link below:</p><p><a href="' + link +
-      '">Verify &amp; set your password</a></p><p>— The SafeDay team</p>',
+      '">Verify &amp; set your password</a></p><p>- The SafeDay team</p>',
     category: "account-invite",
   });
 

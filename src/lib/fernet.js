@@ -17,7 +17,7 @@ export async function decryptNxPassword(encrypted) {
   const token = new fernet.Token({
     secret: await secret(),
     token: encrypted,
-    ttl: 0, // these tokens never expire — disable TTL enforcement
+    ttl: 0, // these tokens never expire - disable TTL enforcement
   });
   return token.decode();
 }

@@ -2,7 +2,7 @@
 
 The **SafeDay childcare alert-triage backend**, transposed from a FastAPI +
 SQLAlchemy + Postgres app (originally on port 8080) into the **Serverless
-Framework** — AWS **Lambda + API Gateway + DynamoDB**, with request validation
+Framework** - AWS **Lambda + API Gateway + DynamoDB**, with request validation
 in **Joi** and secrets in **AWS Secrets Manager**. It's a drop-in replacement
 for the REST contract the existing frontend/Flutter app already speaks, so the
 demo site can point at it in production.
@@ -22,27 +22,27 @@ demo site can point at it in production.
                                                                                    Secrets Manager
 ```
 
-- **REST** — 5 router Lambdas (`auth`, `alerts`, `sites`, `admin`, `webhooks`),
+- **REST** - 5 router Lambdas (`auth`, `alerts`, `sites`, `admin`, `webhooks`),
   each dispatching internally on the API Gateway `routeKey`. ~25 endpoints,
   identical paths/shapes to the FastAPI app (`/api/v1/...`).
-- **WebSocket API** — replaces the FastAPI `/ws/notifications` socket + in-memory
+- **WebSocket API** - replaces the FastAPI `/ws/notifications` socket + in-memory
   connection manager. Connections are stored in DynamoDB so the webhook Lambda
   can broadcast new-alert events via the API Gateway Management API.
-- **Footage** — a Lambda **Function URL with response streaming**
+- **Footage** - a Lambda **Function URL with response streaming**
   (`RESPONSE_STREAM`), which bypasses API Gateway's 10 MB / 29 s limits and
   streams the Nx Witness MP4 to the client in chunks.
-- **Auth** — JWT (HS256) access/refresh tokens + the single-use, fingerprinted
+- **Auth** - JWT (HS256) access/refresh tokens + the single-use, fingerprinted
   set-password token, bcrypt password hashing (existing `$2b$` hashes from the
   dump verify as-is), role + per-site permission checks.
-- **Validation** — every request body is validated/coerced with Joi (422 on
+- **Validation** - every request body is validated/coerced with Joi (422 on
   failure, mirroring FastAPI).
-- **Data** — DynamoDB, one table per entity, with GSIs for every access pattern
+- **Data** - DynamoDB, one table per entity, with GSIs for every access pattern
   (see `serverless.yml`). `alembic_version` is dropped (migration bookkeeping).
 
 ## Prerequisites
 
 - Node.js 18+ and the AWS CLI configured with a **`default`** profile.
-- Serverless Framework v4 needs a free login/license key — run
+- Serverless Framework v4 needs a free login/license key - run
   `npx serverless login` once (or set `SERVERLESS_ACCESS_KEY`).
 
 ## Deploy
@@ -56,7 +56,7 @@ The deploy creates the DynamoDB tables, both APIs, the footage Function URL,
 and a **stub** Secrets Manager secret. It prints the REST base URL
 (`HttpApiUrl`), the WebSocket URL (`WebSocketUrl`), and the footage Function URL.
 
-## Secrets — what to set & how
+## Secrets - what to set & how
 
 The app loads a single JSON secret named **`safeday/dev/app`** at cold start
 (one secret, one fetch, one IAM grant). `serverless deploy` creates it with
@@ -75,13 +75,13 @@ Generate fresh values if you're starting clean:
 ```bash
 # JWT key + webhook secret (32 random bytes, hex)
 openssl rand -hex 32
-# Fernet key (urlsafe base64, 32 bytes) — must match how Nx passwords were encrypted
+# Fernet key (urlsafe base64, 32 bytes) - must match how Nx passwords were encrypted
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
 ### Tutorial: add the secrets
 
-**Option A — AWS CLI (recommended)**
+**Option A - AWS CLI (recommended)**
 
 ```bash
 aws secretsmanager put-secret-value \
@@ -95,7 +95,7 @@ aws secretsmanager put-secret-value \
   }'
 ```
 
-**Option B — AWS Console**
+**Option B - AWS Console**
 
 1. Open **AWS Console → Secrets Manager → Secrets**.
 2. Click **`safeday/dev/app`**.
@@ -123,7 +123,7 @@ STAGE=dev npm run migrate
 This parses the `pg_dump` COPY blocks, converts types (uuid/text passthrough,
 timestamps → ISO 8601, booleans, numbers), denormalises `site_id` / `camera_id`
 / `alert_type` onto the footage access log (the relational version got these via
-a join), and `BatchWrite`s every table. Idempotent — re-running overwrites by
+a join), and `BatchWrite`s every table. Idempotent - re-running overwrites by
 primary key.
 
 ## Try it
@@ -133,7 +133,7 @@ API=$(aws cloudformation describe-stacks --stack-name safeday-dev \
   --query "Stacks[0].Outputs[?OutputKey=='HttpApiUrl'].OutputValue" \
   --output text --profile default --region us-east-1)
 
-# Log in (migrated user — superuser)
+# Log in (migrated user - superuser)
 curl -s -X POST $API/api/v1/auth/login -H 'Content-Type: application/json' \
   -d '{"email":"admin@example.com","password":"<password>"}'
 
@@ -161,15 +161,15 @@ log) against the deployed API.
 
 ## Known limitations & production notes
 
-- **Nx Witness reachability** — sites point at private VMS hosts
+- **Nx Witness reachability** - sites point at private VMS hosts
   (`192.168.x:7001`). Those are unreachable from AWS, so `test-connection`,
   `cameras`, and `footage` return **502** until there's VPC connectivity
   (VPN / Direct Connect) into each centre's network. The Fernet decrypt path
   still runs (credentials round-trip correctly); only the network call fails.
-- **Footage at scale** — the streaming Function URL handles single/short clips
+- **Footage at scale** - the streaming Function URL handles single/short clips
   well. For sustained, highly concurrent, long video exports, evolve the footage
   path to **ECS Fargate** behind the VPC tunnel (keep the rest serverless).
-- **Mobile push** — the `device_tokens` table and FCM/APNs path are stubbed
+- **Mobile push** - the `device_tokens` table and FCM/APNs path are stubbed
   (as in the original). That's where **SNS mobile push** (or FCM) plugs in
   later; it does not affect the desktop WebSocket path.
 

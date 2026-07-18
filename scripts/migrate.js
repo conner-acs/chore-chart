@@ -132,7 +132,7 @@ async function main() {
     }))
   );
 
-  // alerts — build a lookup for footage-log enrichment
+  // alerts - build a lookup for footage-log enrichment
   const alerts = (blocks.alerts || []).map((r) =>
     clean({
       id: r.id,
@@ -152,7 +152,7 @@ async function main() {
   await batchWrite(TABLES.alerts, alerts);
   const alertById = new Map(alerts.map((a) => [a.id, a]));
 
-  // footage_access_log — denormalise site_id/camera_id/alert_type from the alert
+  // footage_access_log - denormalise site_id/camera_id/alert_type from the alert
   const logs = (blocks.footage_access_log || []).map((r) => {
     const alert = alertById.get(r.alert_id) || {};
     return clean({

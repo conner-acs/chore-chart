@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { getSecret } from "./secrets.js";
 
-// Token lifetimes — mirror the FastAPI settings (app/core/config.py).
+// Token lifetimes - mirror the FastAPI settings (app/core/config.py).
 const ACCESS_TOKEN_EXPIRE_MINUTES = 15;
 const REFRESH_TOKEN_EXPIRE_DAYS = 30;
 const SET_PASSWORD_TOKEN_EXPIRE_MINUTES = 30;

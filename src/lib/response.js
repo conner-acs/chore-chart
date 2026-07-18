@@ -8,7 +8,7 @@ export const json = (statusCode, body) => ({
   body: body === undefined || body === "" ? "" : JSON.stringify(body),
 });
 
-// FastAPI returns errors as {"detail": "..."} — preserve that shape so the
+// FastAPI returns errors as {"detail": "..."} - preserve that shape so the
 // existing frontend's error handling keeps working unchanged.
 export const error = (statusCode, detail) => json(statusCode, { detail });
 

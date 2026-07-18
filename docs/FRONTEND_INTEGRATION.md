@@ -4,7 +4,7 @@ This is the integration brief for pointing the SafeDay demo frontend at the new
 **serverless** backend (AWS Lambda + API Gateway + DynamoDB). It replaces the
 old FastAPI server that ran on `http://localhost:8080`.
 
-**The REST contract is unchanged** — same `/api/v1/...` paths, same request and
+**The REST contract is unchanged** - same `/api/v1/...` paths, same request and
 response JSON, same `Bearer` JWT auth, same `{"detail": "..."}` error shape and
 HTTP status codes. For most of the app, integration is a **base-URL swap**. The
 three things that genuinely changed are called out under "What's different".
@@ -26,7 +26,7 @@ VITE_FOOTAGE_BASE_URL=https://rcgdng4hs3as4icwul43yp5waq0qucyb.lambda-url.us-eas
 ```
 
 > These are the `dev` stack outputs. If the backend is redeployed to another
-> stage/region the IDs change — read them from `serverless deploy` output or the
+> stage/region the IDs change - read them from `serverless deploy` output or the
 > `safeday-<stage>` CloudFormation stack outputs (`HttpApiUrl`,
 > `ServiceEndpointWebsocket`, `FootageLambdaFunctionUrl`).
 
@@ -35,7 +35,7 @@ VITE_FOOTAGE_BASE_URL=https://rcgdng4hs3as4icwul43yp5waq0qucyb.lambda-url.us-eas
 1. `POST /api/v1/auth/login` with `{ "email", "password" }` →
    `{ "access_token", "refresh_token", "token_type": "bearer" }`.
 2. Send `Authorization: Bearer <access_token>` on every protected request.
-3. Access tokens expire in 15 min — on a `401` with `{"detail":"Invalid or expired token"}`,
+3. Access tokens expire in 15 min - on a `401` with `{"detail":"Invalid or expired token"}`,
    call `POST /api/v1/auth/refresh` with `{ "refresh_token" }` to get a new pair;
    if that also fails, send the user back to login.
 4. New-user invite flow is unchanged: `POST /api/v1/auth/set-password` with
@@ -43,7 +43,7 @@ VITE_FOOTAGE_BASE_URL=https://rcgdng4hs3as4icwul43yp5waq0qucyb.lambda-url.us-eas
 
 `GET /api/v1/auth/me` returns the current user
 (`id, email, full_name, role, organization_id, account_created, is_active`).
-`role` is one of `operator | site_admin | superuser` — drive role-based UI off this.
+`role` is one of `operator | site_admin | superuser` - drive role-based UI off this.
 
 ## Full endpoint map (paths identical to the old backend)
 
@@ -60,8 +60,8 @@ VITE_FOOTAGE_BASE_URL=https://rcgdng4hs3as4icwul43yp5waq0qucyb.lambda-url.us-eas
 | GET | `/api/v1/sites/{id}/audit-log?user_id=&limit=&offset=` | site_admin | |
 | GET/POST/DELETE | `/api/v1/admin/organizations[/{id}]` | superuser | |
 | GET/POST | `/api/v1/admin/sites` · `/admin/organizations/{id}/sites` | superuser | |
-| POST | `/api/v1/admin/sites/{id}/test-connection` | superuser | Nx — see limitations |
-| GET | `/api/v1/admin/sites/{id}/cameras` | superuser | Nx — see limitations |
+| POST | `/api/v1/admin/sites/{id}/test-connection` | superuser | Nx - see limitations |
+| GET | `/api/v1/admin/sites/{id}/cameras` | superuser | Nx - see limitations |
 | DELETE | `/api/v1/admin/sites/{id}` | superuser | 204 |
 | GET/POST/PUT/DELETE | `/api/v1/admin/users[...]` | superuser* | PUT is partial-update; `*` PUT allows self-edits |
 | POST | `/api/v1/admin/users/{id}/resend-invite` | superuser | 202 |
@@ -90,7 +90,7 @@ videoEl.src = URL.createObjectURL(await res.blob());
 ```
 
 > If you'd rather stream straight into `<video>`, ask the backend to add
-> query-param token support (`?token=`) on the footage handler — easy to add.
+> query-param token support (`?token=`) on the footage handler - easy to add.
 
 ### 2. Real-time notifications: WebSocket connect URL changed
 

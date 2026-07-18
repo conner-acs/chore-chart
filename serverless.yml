@@ -2,7 +2,7 @@ service: safeday
 
 frameworkVersion: "4"
 
-# SafeDay childcare alert-triage backend — FastAPI -> Serverless Framework.
+# SafeDay childcare alert-triage backend - FastAPI -> Serverless Framework.
 # HTTP API (REST) + WebSocket API (real-time alerts) + a streaming Function URL
 # (footage), all backed by DynamoDB. Secrets live in AWS Secrets Manager.
 
@@ -18,7 +18,7 @@ provider:
   timeout: 29
   httpApi:
     # Per-stage CORS: '*' for local dev only; locked to the site origin(s)
-    # otherwise (industry best practice — no wildcard origin in production).
+    # otherwise (industry best practice - no wildcard origin in production).
     cors: ${self:custom.cors.${self:provider.stage}, self:custom.cors.default}
   environment:
     STAGE: ${self:provider.stage}
@@ -201,7 +201,7 @@ resources:
   Resources:
     # ---- Secrets (STUB) ---------------------------------------------------
     # Created with placeholder values so the stack deploys. Populate real
-    # values out-of-band (see README) — CloudFormation won't overwrite them on
+    # values out-of-band (see README) - CloudFormation won't overwrite them on
     # later deploys because the template's SecretString stays unchanged.
     AppSecret:
       Type: AWS::SecretsManager::Secret
