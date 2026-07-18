@@ -233,7 +233,6 @@ COPY public.footage_access_log (id, alert_id, user_id, accessed_at, action, user
 COPY public.organizations (id, name) FROM stdin;
 3f1fbba7-0314-438c-a47b-03d1902c0cb9	Art of Logic
 99e09b76-abde-47d5-8c98-78732bf3e77d	Sunshine Childcare Group
-ee8ba1d6-1f05-47ac-88a1-ba1833ddeaf2	Sunshine Childcare Group
 258be96d-a078-47ef-92e9-087a56e6755c	Ascension Cloud Solutions
 aef7219a-fcdf-4480-84fb-418824ad2386	SafeDay Wiring Smoke Test
 8eebe3de-3dca-4820-b74e-b3c6ac0d898f	Tasman Childcare Group
@@ -282,6 +281,8 @@ COPY public.sites (id, name, nx_host, nx_username, nx_password_encrypted, organi
 --
 
 COPY public.user_site_permissions (id, user_id, site_id) FROM stdin;
+0f8773e7-1f77-4942-b79a-a476c048fc8b	6fc48737-0ab3-45d4-81a2-62a319598553	56f1dc59-39c9-4759-bf92-006be5b37a12
+21bcb5fc-3703-487b-ba16-1328fbb5928f	a08458a3-bc05-44a0-aaad-273b0f118f51	56f1dc59-39c9-4759-bf92-006be5b37a12
 e266937e-0fa1-4488-b4b5-0f6762448031	ee1e3c17-a198-4c60-a94e-6ff711f14307	56f1dc59-39c9-4759-bf92-006be5b37a12
 9c1c8687-7423-444d-a83d-42dbaf430df8	ee1e3c17-a198-4c60-a94e-6ff711f14307	248a35d2-d764-46a6-9bf8-d5029719360c
 7071c200-2b87-42ba-b69c-a351bf436cb2	c63f68c9-e64c-4f94-b24e-057c17462b39	248a35d2-d764-46a6-9bf8-d5029719360c
@@ -346,7 +347,9 @@ bb04c571-004d-453e-95c3-37c2c2030f1e	910d66fc-a613-43f0-9ce2-cd361928e867	7e55ab
 --
 
 COPY public.users (id, email, hashed_password, full_name, role, organization_id, account_created, is_active) FROM stdin;
-5ad1341e-949d-4aab-b091-626d972338e1	jane.smith@example.com	$2b$12$R8mUn9.IUfYZ4Q31Ccfar.0C9F4gNGEz0c92o4qziOXAjA1z76ezO	Jane Smith	site_admin	99e09b76-abde-47d5-8c98-78732bf3e77d	2026-06-05	t
+5ad1341e-949d-4aab-b091-626d972338e1	jane.smith@example.com	$2a$12$u5ODeRTxZtIAqnBuQ30TYuMBT/IzGfr/Tb2xInpMyR68VndsDU67i	Jane Smith	site_admin	99e09b76-abde-47d5-8c98-78732bf3e77d	2026-06-05	t
+6fc48737-0ab3-45d4-81a2-62a319598553	marcus.chen@example.com	$2a$12$u5ODeRTxZtIAqnBuQ30TYuMBT/IzGfr/Tb2xInpMyR68VndsDU67i	Marcus Chen	operator	99e09b76-abde-47d5-8c98-78732bf3e77d	2026-06-06	t
+a08458a3-bc05-44a0-aaad-273b0f118f51	aisha.rahman@example.com	$2a$12$u5ODeRTxZtIAqnBuQ30TYuMBT/IzGfr/Tb2xInpMyR68VndsDU67i	Aisha Rahman	operator	99e09b76-abde-47d5-8c98-78732bf3e77d	2026-06-06	t
 19a1c132-a98c-4119-b44c-70dc77c937a7	conner@ascensioncloudsolutions.com	$2b$12$gQ/Es8VxNh5Lj.fFBzqcZueLV3l/aR7GBRNxqFMosdKhJ3uyrMzrm	Jane Smith	site_admin	258be96d-a078-47ef-92e9-087a56e6755c	2026-06-14	t
 225ab65e-c55d-4299-80ae-d0ca14b3d6ca	conner+8@ascensioncloudsolutions.com	$2b$12$/PihKfyUHJG1GGVIHTXUDOuanxfYH2wd5TYffK7Xmq1b2ndoduiLG	Conner Goldberg	site_admin	9f12b78c-c5ab-4c01-b785-cb54cf230971	2026-06-15	t
 d53f5b70-0a39-4c72-9af6-cdde6941b8cd	admin@example.com	$2b$12$Qc1rBb909iuOH0LTLp/Cx.3XKJ2u/c0VQ3dhGMQc/0PIXHtJ1DFAm	Admin	superuser	3f1fbba7-0314-438c-a47b-03d1902c0cb9	2026-06-05	t
