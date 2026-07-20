@@ -2,6 +2,8 @@
 // frontend sees identical JSON. Each picks an explicit field set and coalesces
 // missing/optional values to null (DynamoDB omits undefined attributes).
 
+import { orgSlaDays } from "./sla.js";
+
 const n = (v) => (v === undefined ? null : v);
 
 export const tokenResponse = (accessToken, refreshToken) => ({
@@ -20,7 +22,7 @@ export const userResponse = (u) => ({
   is_active: u.is_active,
 });
 
-export const alertResponse = (a) => ({
+export const alertResponse = (a, sla = {}) => ({
   id: a.id,
   site_id: a.site_id,
   camera_id: a.camera_id,
@@ -45,6 +47,9 @@ export const alertResponse = (a) => ({
   decided_at: n(a.decided_at),
   decision_label: n(a.decision_label ?? a.review_label ?? a.proposer_label),
   created_at: a.created_at,
+  // Footage SLA (see lib/sla.js): deadline to action this alert + overdue flag.
+  sla_deadline: sla.sla_deadline ?? null,
+  overdue: sla.overdue ?? false,
 });
 
 export const siteResponse = (s) => ({
@@ -76,7 +81,12 @@ export const auditLogEntryResponse = (e) => ({
   accessed_at: e.accessed_at,
 });
 
-export const organizationResponse = (o) => ({ id: o.id, name: o.name });
+export const organizationResponse = (o) => ({
+  id: o.id,
+  name: o.name,
+  footage_sla_days: orgSlaDays(o),
+  require_restore_approval: o.require_restore_approval ?? false,
+});
 
 export const siteSummary = (s) => ({ id: s.id, name: s.name });
 

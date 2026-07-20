@@ -128,3 +128,11 @@ export const updateUserSchema = Joi.object({
   organization_id: uuid,
   site_ids: Joi.array().items(uuid),
 });
+
+// Per-org footage policy (site_admin-editable). PATCH semantics: at least one
+// field, each optional. footage_sla_days is clamped to the SLA range; see
+// lib/sla.js (MIN_SLA_DAYS..MAX_SLA_DAYS).
+export const orgSettingsSchema = Joi.object({
+  footage_sla_days: Joi.number().integer().min(1).max(14),
+  require_restore_approval: Joi.boolean(),
+}).min(1);

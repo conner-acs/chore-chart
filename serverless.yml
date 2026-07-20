@@ -139,6 +139,12 @@ functions:
       - httpApi: { path: "/api/v1/alerts/{alert_id}", method: get }
       - httpApi: { path: "/api/v1/alerts/{alert_id}/decision", method: post }
 
+  settings:
+    handler: src/handlers/settings.handler
+    events:
+      - httpApi: { path: "/api/v1/settings", method: get }
+      - httpApi: { path: "/api/v1/settings", method: patch }
+
   sites:
     handler: src/handlers/sites.handler
     events:

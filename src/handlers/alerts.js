@@ -16,6 +16,8 @@ import { getSite } from "../lib/repo/sites.js";
 import { sendAlertReviewEmail } from "../services/email.js";
 import { alertResponse } from "../lib/presenters.js";
 import { alertDecisionSchema } from "../schemas/index.js";
+import { getOrganization } from "../lib/repo/organizations.js";
+import { DEFAULT_SLA_DAYS, orgSlaDays, slaFields } from "../lib/sla.js";
 
 const VALID_STATUSES = ["unprocessed", "discarded", "submitted_for_review", "incident"];
 
@@ -33,6 +35,15 @@ async function logAction(alert, user, action, now) {
     action,
     accessed_at: now,
   });
+}
+
+// The viewing user's SLA window, resolved once and reused for all their alerts.
+// Non-superusers only see their own org's alerts (org-scoped access), so the
+// viewer's org is the alert's org; superusers span orgs and get the default for
+// this display-only flag.
+async function viewerSlaDays(user) {
+  if (!user.organization_id) return DEFAULT_SLA_DAYS;
+  return orgSlaDays(await getOrganization(user.organization_id));
 }
 
 async function listAlerts({ user, query }) {
@@ -69,7 +80,12 @@ async function listAlerts({ user, query }) {
   }
 
   alerts.sort((a, b) => (a.created_at < b.created_at ? 1 : -1)); // newest first
-  return alerts.slice(offset, offset + limit).map(alertResponse);
+
+  const now = Date.now();
+  const slaDays = await viewerSlaDays(user);
+  return alerts
+    .slice(offset, offset + limit)
+    .map((a) => alertResponse(a, slaFields(a, slaDays, now)));
 }
 
 async function getOneAlert({ user, params }) {
@@ -81,7 +97,8 @@ async function getOneAlert({ user, params }) {
   if (user.role === "operator" && !operatorCanSeeAlert(alert)) {
     throw new HttpError(403, "Access denied");
   }
-  return alertResponse(alert);
+  const slaDays = await viewerSlaDays(user);
+  return alertResponse(alert, slaFields(alert, slaDays, Date.now()));
 }
 
 // Decision labels and the terminal status each derives.
