@@ -177,6 +177,8 @@ functions:
   admin:
     handler: src/handlers/admin.handler
     events:
+      - httpApi: { path: "/api/v1/users", method: get }
+      - httpApi: { path: "/api/v1/users", method: post }
       - httpApi: { path: "/api/v1/admin/organizations", method: get }
       - httpApi: { path: "/api/v1/admin/organizations", method: post }
       - httpApi: { path: "/api/v1/admin/organizations/{organization_id}", method: delete }
