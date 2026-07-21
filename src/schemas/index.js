@@ -114,6 +114,7 @@ export const createUserSchema = Joi.object({
   email: email.required(),
   password: Joi.string().required(),
   full_name: Joi.string().required(),
+  phone: Joi.string().max(32).allow("", null),
   role: Joi.string().valid(...ROLES).required(),
   organization_id: uuid.required(),
   site_ids: Joi.array().items(uuid).default([]),
@@ -124,6 +125,7 @@ export const updateUserSchema = Joi.object({
   email: email,
   password: Joi.string(),
   full_name: Joi.string(),
+  phone: Joi.string().max(32).allow("", null),
   role: Joi.string().valid(...ROLES),
   organization_id: uuid,
   site_ids: Joi.array().items(uuid),
@@ -142,3 +144,23 @@ export const orgSettingsSchema = Joi.object({
 export const optionalNoteSchema = Joi.object({
   note: Joi.string().max(500).allow("", null),
 });
+
+// Site-admin self-service user creation (POST /api/v1/users). The org is taken
+// from the caller's token (never a param); role is capped to operator/site_admin
+// at the schema (superuser is impossible here) and re-checked against the
+// caller's rank in the handler. No password - onboarding is invite-based.
+export const orgUserCreateSchema = Joi.object({
+  email: email.required(),
+  full_name: Joi.string().required(),
+  phone: Joi.string().max(32).allow("", null),
+  role: Joi.string().valid("operator", "site_admin").required(),
+  site_ids: Joi.array().items(uuid).default([]),
+});
+
+// Site-admin edit of an org user (PATCH /api/v1/users/{id}). At least one field;
+// role capped to operator/site_admin (superuser impossible) and re-checked
+// against the caller's rank in the handler. site_ids REPLACES the user's set.
+export const orgUserUpdateSchema = Joi.object({
+  role: Joi.string().valid("operator", "site_admin"),
+  site_ids: Joi.array().items(uuid),
+}).min(1);

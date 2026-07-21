@@ -2,7 +2,9 @@ import {
   PutObjectCommand,
   RestoreObjectCommand,
   HeadObjectCommand,
+  GetObjectCommand,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { s3, FOOTAGE_BUCKET } from "./s3.js";
 
 // Footage lifecycle states carried on an alert (default "hot" when absent):
@@ -64,4 +66,60 @@ export const isRestoreComplete = async (key) => {
     new HeadObjectCommand({ Bucket: FOOTAGE_BUCKET, Key: key })
   );
   return /ongoing-request="false"/.test(head.Restore || "");
+};
+
+// ---- HLS delivery: private prefixes + presigned-segment manifests ----
+
+const STAGE = process.env.STAGE || "dev";
+
+// Short-lived TTL shared by the footage token + the presigned segment URLs.
+export const FOOTAGE_TOKEN_TTL_SEC = 900; // 15 min
+
+// HLS object prefixes (many objects: index.m3u8 + seg_*.ts). Real per-alert
+// footage lives under env/org/site/alert/video; demo clips under a per-type prefix.
+export const hlsPrefix = (alert, videoId) =>
+  `footage/${STAGE}/${alert.organization_id ?? "_"}/${alert.site_id}/${alert.id}/${videoId}/`;
+
+export const demoHlsPrefix = (alertType) =>
+  `footage/${STAGE}/_demo/${String(alertType || "").toLowerCase()}/`;
+
+// Does an HLS manifest exist under `prefix`?
+export const hlsExists = async (prefix) => {
+  try {
+    await s3.send(
+      new HeadObjectCommand({ Bucket: FOOTAGE_BUCKET, Key: prefix + "index.m3u8" })
+    );
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+// Read the stored index.m3u8 under `prefix`, presign every segment line (SigV4,
+// in-region, short-lived), and return the rewritten manifest text. The manifest
+// is never stored with absolute URLs, so no single downloadable video URL ever
+// exists - hls.js loads this text as a blob and fetches presigned segments
+// directly from S3 (ap-southeast-2). The presigned URLs expire with the token.
+export const buildSignedManifest = async (prefix) => {
+  const obj = await s3.send(
+    new GetObjectCommand({ Bucket: FOOTAGE_BUCKET, Key: prefix + "index.m3u8" })
+  );
+  const text = await obj.Body.transformToString();
+  const out = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    // Non-comment, non-empty lines are segment filenames (relative) - presign them.
+    if (line && !line.startsWith("#")) {
+      out.push(
+        await getSignedUrl(
+          s3,
+          new GetObjectCommand({ Bucket: FOOTAGE_BUCKET, Key: prefix + line }),
+          { expiresIn: FOOTAGE_TOKEN_TTL_SEC }
+        )
+      );
+    } else {
+      out.push(raw);
+    }
+  }
+  return out.join("\n");
 };

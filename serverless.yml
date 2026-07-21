@@ -164,6 +164,12 @@ functions:
       - httpApi: { path: "/api/v1/settings", method: get }
       - httpApi: { path: "/api/v1/settings", method: patch }
 
+  # ---- HLS footage: mint a short-lived signed manifest (presigned segments) ----
+  footageToken:
+    handler: src/handlers/footageToken.handler
+    events:
+      - httpApi: { path: "/api/v1/alerts/{alert_id}/footage-token", method: post }
+
   sites:
     handler: src/handlers/sites.handler
     events:
@@ -177,6 +183,9 @@ functions:
   admin:
     handler: src/handlers/admin.handler
     events:
+      - httpApi: { path: "/api/v1/users", method: get }
+      - httpApi: { path: "/api/v1/users", method: post }
+      - httpApi: { path: "/api/v1/users/{user_id}", method: patch }
       - httpApi: { path: "/api/v1/admin/organizations", method: get }
       - httpApi: { path: "/api/v1/admin/organizations", method: post }
       - httpApi: { path: "/api/v1/admin/organizations/{organization_id}", method: delete }
