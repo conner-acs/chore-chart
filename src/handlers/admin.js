@@ -45,6 +45,7 @@ import {
   adminUserListItem,
   createUserResponse,
   updateUserResponse,
+  orgUserListItem,
   siteSummary,
   cameraResponse,
 } from "../lib/presenters.js";
@@ -54,6 +55,7 @@ import {
   createSiteInOrgSchema,
   createUserSchema,
   updateUserSchema,
+  orgUserCreateSchema,
   testAlertSchema,
 } from "../schemas/index.js";
 
@@ -459,7 +461,98 @@ async function testAlert({ user, body }) {
   return { ...alert, site_name: site.name };
 }
 
+// ---- Site-admin org user management (create + list; org/site/rank scoped) ----
+
+// List the users in the caller's organization, each with the sites they are
+// permitted on. site_admin+, scoped to the caller's own org (SECURITY_RULES 1.2).
+async function listOrgUsers({ user: caller }) {
+  const orgId = caller.organization_id;
+  if (!orgId) throw new HttpError(400, "No organization for this account");
+  const [users, orgSites] = await Promise.all([
+    listUsersByOrg(orgId),
+    listSitesByOrg(orgId),
+  ]);
+  const siteName = new Map(orgSites.map((s) => [s.id, s.name]));
+  const rows = await Promise.all(
+    users.map(async (u) => {
+      const ids = await listSiteIdsForUser(u.id);
+      const sites = ids
+        .filter((id) => siteName.has(id))
+        .map((id) => ({ id, name: siteName.get(id) }));
+      return orgUserListItem(u, sites);
+    })
+  );
+  rows.sort((a, b) => a.full_name.localeCompare(b.full_name));
+  return rows;
+}
+
+// Create a new user in the caller's org. Enforces (SECURITY_RULES 1.2 / 1.5):
+//   - org = the caller's org (never cross-org; taken from the token)
+//   - role <= the caller's rank (schema already blocks superuser)
+//   - assigned sites are a subset of the caller's authorised sites AND in the org
+// Onboarding is invite-based: a random password is set + a set-password email sent.
+async function createOrgUser({ user: caller, body }) {
+  const orgId = caller.organization_id;
+  if (!orgId) throw new HttpError(400, "No organization for this account");
+
+  if (ROLE_RANK[body.role] > ROLE_RANK[caller.role]) {
+    throw new HttpError(403, "Cannot create a user with a role above your own");
+  }
+
+  const siteIds = [...new Set(body.site_ids || [])];
+  const accessible = await getAccessibleSiteIds(caller); // null = superuser (all)
+  if (accessible !== null) {
+    const allowed = new Set(accessible);
+    if (siteIds.some((s) => !allowed.has(s))) {
+      throw new HttpError(403, "You can only assign sites you manage");
+    }
+  }
+  if (siteIds.length) {
+    const orgSiteIds = new Set((await listSitesByOrg(orgId)).map((s) => s.id));
+    if (siteIds.some((s) => !orgSiteIds.has(s))) {
+      throw new HttpError(404, "Unknown site for this organization");
+    }
+  }
+
+  if (await getUserByEmail(body.email)) {
+    throw new HttpError(409, "Email already registered");
+  }
+
+  const user = {
+    id: newId(),
+    email: body.email,
+    // Invite-based: unguessable until the user sets their own via the email link.
+    hashed_password: hashPassword(newId() + newId()),
+    full_name: body.full_name,
+    phone: body.phone || null,
+    role: body.role,
+    organization_id: orgId,
+    account_created: today(),
+    is_active: true,
+  };
+  await putUser(user);
+  await Promise.all(
+    siteIds.map((sid) => putPermission({ id: newId(), user_id: user.id, site_id: sid }))
+  );
+
+  try {
+    const token = await createSetPasswordToken(user.id, user.hashed_password);
+    await sendSetPasswordEmail({ toEmail: user.email, fullName: user.full_name, token });
+  } catch (err) {
+    console.warn("set-password email failed:", err.message);
+  }
+  return createUserResponse(user);
+}
+
 export const handler = createRouter({
+  // Site-admin org user management (org/site/rank scoped; see handlers above).
+  "GET /api/v1/users": { fn: listOrgUsers, auth: "site_admin" },
+  "POST /api/v1/users": {
+    fn: createOrgUser,
+    auth: "site_admin",
+    schema: orgUserCreateSchema,
+    status: 201,
+  },
   "GET /api/v1/admin/organizations": { fn: listOrgs, auth: "superuser" },
   "POST /api/v1/admin/organizations": {
     fn: createOrg,
