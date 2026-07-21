@@ -83,6 +83,12 @@ export const hlsPrefix = (alert, videoId) =>
 export const demoHlsPrefix = (alertType) =>
   `footage/${STAGE}/_demo/${String(alertType || "").toLowerCase()}/`;
 
+// Fallback demo clip for alert types that have no type-specific clip uploaded
+// (e.g. possibly_staff / incident). Must be one of the types the transcode tool
+// uploads (see tools/transcode-demo-footage.mjs in safeday-demo), so a clip is
+// guaranteed present once the demo footage has been seeded.
+export const DEFAULT_DEMO_ALERT_TYPE = "child_in_no_go_zone";
+
 // Does an HLS manifest exist under `prefix`?
 export const hlsExists = async (prefix) => {
   try {
