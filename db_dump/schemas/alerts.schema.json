@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeday/schemas/alerts.schema.json",
+  "title": "alerts",
+  "description": "Row object for the public.alerts table (childcare_dev).",
+  "type": "object",
+  "x-primary-key": [
+    "id"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "site_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "camera_id": {
+      "type": "string"
+    },
+    "alert_type": {
+      "type": "string"
+    },
+    "start_timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "end_timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nx_bookmark_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "unprocessed",
+        "discarded",
+        "submitted_for_review",
+        "incident"
+      ]
+    },
+    "decided_by": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "decided_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "decision_label": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "site_id",
+    "camera_id",
+    "alert_type",
+    "start_timestamp",
+    "end_timestamp",
+    "status",
+    "created_at"
+  ],
+  "additionalProperties": false
+}

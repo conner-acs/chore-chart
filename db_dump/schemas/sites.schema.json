@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeday/schemas/sites.schema.json",
+  "title": "sites",
+  "description": "Row object for the public.sites table (childcare_dev).",
+  "type": "object",
+  "x-primary-key": [
+    "id"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "name": {
+      "type": "string"
+    },
+    "nx_host": {
+      "type": "string"
+    },
+    "nx_username": {
+      "type": "string"
+    },
+    "nx_password_encrypted": {
+      "type": "string"
+    },
+    "organization_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "site_token": {
+      "type": "string"
+    },
+    "nx_tls_cert": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "latitude": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "longitude": {
+      "type": [
+        "number",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "nx_host",
+    "nx_username",
+    "nx_password_encrypted",
+    "organization_id",
+    "site_token"
+  ],
+  "additionalProperties": false
+}

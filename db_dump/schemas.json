@@ -1,0 +1,370 @@
+{
+  "generated_at": null,
+  "database": "childcare_dev",
+  "tables": {
+    "alembic_version": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://safeday/schemas/alembic_version.schema.json",
+      "title": "alembic_version",
+      "description": "Row object for the public.alembic_version table (childcare_dev).",
+      "type": "object",
+      "x-primary-key": [
+        "version_num"
+      ],
+      "properties": {
+        "version_num": {
+          "type": "string",
+          "maxLength": 32
+        }
+      },
+      "required": [
+        "version_num"
+      ],
+      "additionalProperties": false
+    },
+    "alerts": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://safeday/schemas/alerts.schema.json",
+      "title": "alerts",
+      "description": "Row object for the public.alerts table (childcare_dev).",
+      "type": "object",
+      "x-primary-key": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "site_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "camera_id": {
+          "type": "string"
+        },
+        "alert_type": {
+          "type": "string"
+        },
+        "start_timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "end_timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "nx_bookmark_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "unprocessed",
+            "discarded",
+            "submitted_for_review",
+            "incident"
+          ]
+        },
+        "decided_by": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "decided_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "decision_label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "site_id",
+        "camera_id",
+        "alert_type",
+        "start_timestamp",
+        "end_timestamp",
+        "status",
+        "created_at"
+      ],
+      "additionalProperties": false
+    },
+    "device_tokens": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://safeday/schemas/device_tokens.schema.json",
+      "title": "device_tokens",
+      "description": "Row object for the public.device_tokens table (childcare_dev).",
+      "type": "object",
+      "x-primary-key": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "token": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "token",
+        "platform"
+      ],
+      "additionalProperties": false
+    },
+    "footage_access_log": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://safeday/schemas/footage_access_log.schema.json",
+      "title": "footage_access_log",
+      "description": "Row object for the public.footage_access_log table (childcare_dev).",
+      "type": "object",
+      "x-primary-key": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "alert_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "user_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "accessed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "clip_viewed",
+            "discarded",
+            "submitted_for_review",
+            "incident"
+          ]
+        },
+        "user_email": {
+          "type": "string"
+        },
+        "user_full_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "alert_id",
+        "accessed_at",
+        "action",
+        "user_email",
+        "user_full_name"
+      ],
+      "additionalProperties": false
+    },
+    "organizations": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://safeday/schemas/organizations.schema.json",
+      "title": "organizations",
+      "description": "Row object for the public.organizations table (childcare_dev).",
+      "type": "object",
+      "x-primary-key": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "sites": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://safeday/schemas/sites.schema.json",
+      "title": "sites",
+      "description": "Row object for the public.sites table (childcare_dev).",
+      "type": "object",
+      "x-primary-key": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string"
+        },
+        "nx_host": {
+          "type": "string"
+        },
+        "nx_username": {
+          "type": "string"
+        },
+        "nx_password_encrypted": {
+          "type": "string"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "site_token": {
+          "type": "string"
+        },
+        "nx_tls_cert": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "latitude": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "longitude": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "nx_host",
+        "nx_username",
+        "nx_password_encrypted",
+        "organization_id",
+        "site_token"
+      ],
+      "additionalProperties": false
+    },
+    "user_site_permissions": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://safeday/schemas/user_site_permissions.schema.json",
+      "title": "user_site_permissions",
+      "description": "Row object for the public.user_site_permissions table (childcare_dev).",
+      "type": "object",
+      "x-primary-key": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "site_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "site_id"
+      ],
+      "additionalProperties": false
+    },
+    "users": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://safeday/schemas/users.schema.json",
+      "title": "users",
+      "description": "Row object for the public.users table (childcare_dev).",
+      "type": "object",
+      "x-primary-key": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "email": {
+          "type": "string"
+        },
+        "hashed_password": {
+          "type": "string"
+        },
+        "full_name": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "operator",
+            "site_admin",
+            "superuser"
+          ]
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "account_created": {
+          "type": "string",
+          "format": "date"
+        },
+        "is_active": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "hashed_password",
+        "full_name",
+        "role",
+        "organization_id",
+        "account_created",
+        "is_active"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

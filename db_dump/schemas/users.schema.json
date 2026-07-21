@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeday/schemas/users.schema.json",
+  "title": "users",
+  "description": "Row object for the public.users table (childcare_dev).",
+  "type": "object",
+  "x-primary-key": [
+    "id"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "email": {
+      "type": "string"
+    },
+    "hashed_password": {
+      "type": "string"
+    },
+    "full_name": {
+      "type": "string"
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "operator",
+        "site_admin",
+        "superuser"
+      ]
+    },
+    "organization_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "account_created": {
+      "type": "string",
+      "format": "date"
+    },
+    "is_active": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "email",
+    "hashed_password",
+    "full_name",
+    "role",
+    "organization_id",
+    "account_created",
+    "is_active"
+  ],
+  "additionalProperties": false
+}

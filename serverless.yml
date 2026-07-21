@@ -1,0 +1,421 @@
+service: safeday
+
+frameworkVersion: "4"
+
+# SafeDay childcare alert-triage backend — FastAPI -> Serverless Framework.
+# HTTP API (REST) + WebSocket API (real-time alerts) + a streaming Function URL
+# (footage), all backed by DynamoDB. Secrets live in AWS Secrets Manager.
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: ${opt:region, 'us-east-1'}
+  stage: ${opt:stage, 'dev'}
+  # Honour --aws-profile / AWS_PROFILE, defaulting to 'default' so `npm run
+  # deploy` keeps working unchanged.
+  profile: ${opt:aws-profile, env:AWS_PROFILE, 'default'}
+  memorySize: 256
+  timeout: 29
+  httpApi:
+    # Per-stage CORS: '*' for local dev only; locked to the site origin(s)
+    # otherwise (industry best practice — no wildcard origin in production).
+    cors: ${self:custom.cors.${self:provider.stage}, self:custom.cors.default}
+  environment:
+    STAGE: ${self:provider.stage}
+    SECRETS_ID: ${self:custom.secretName}
+    ORGANIZATIONS_TABLE: ${self:custom.prefix}-organizations
+    SITES_TABLE: ${self:custom.prefix}-sites
+    USERS_TABLE: ${self:custom.prefix}-users
+    USER_SITE_PERMISSIONS_TABLE: ${self:custom.prefix}-user-site-permissions
+    ALERTS_TABLE: ${self:custom.prefix}-alerts
+    FOOTAGE_ACCESS_LOG_TABLE: ${self:custom.prefix}-footage-access-log
+    FOOTAGE_RESTORE_REQUESTS_TABLE: ${self:custom.prefix}-footage-restore-requests
+    DEVICE_TOKENS_TABLE: ${self:custom.prefix}-device-tokens
+    CONNECTIONS_TABLE: ${self:custom.prefix}-connections
+    FOOTAGE_BUCKET: ${self:custom.prefix}-footage
+    # Email domains permitted to access footage HISTORY (comma-separated).
+    # Overridable per deploy; defaults live in src/lib/footageAccess.js.
+    FOOTAGE_ALLOWED_EMAIL_DOMAINS: ${self:custom.footageAllowedDomains}
+    WEBSOCKET_CALLBACK_URL: !Sub "https://${WebsocketsApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}"
+    # Non-secret email/runtime config (the Mailtrap token + test recipient are secrets).
+    ENVIRONMENT: ${self:provider.stage}
+    EMAIL_PROVIDER: ${self:custom.emailProvider.${self:provider.stage}, self:custom.emailProvider.default}
+    EMAIL_SENDER_NAME: SafeDay
+    # SES (production sender). SES_FROM must be a verified SES identity / domain.
+    SES_FROM: ${self:custom.sesFrom.${self:provider.stage}, self:custom.sesFrom.default}
+    SES_REGION: ${self:provider.region}
+    # Mailtrap (dev sandbox capture).
+    MAILTRAP_SANDBOX: "true"
+    MAILTRAP_INBOX_ID: "4711702"
+    MAILTRAP_SENDER_EMAIL: hello@demomailtrap.co
+    PUBLIC_BASE_URL: ${self:custom.publicBaseUrl.${self:provider.stage}, self:custom.publicBaseUrl.default}
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:BatchWriteItem
+          Resource:
+            - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${self:custom.prefix}-*"
+            - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${self:custom.prefix}-*/index/*"
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource:
+            - !Ref AppSecret
+        - Effect: Allow
+          Action:
+            - execute-api:ManageConnections
+          Resource:
+            - !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:*/*/*/@connections/*"
+        - Effect: Allow
+          Action:
+            - ses:SendEmail
+            - ses:SendRawEmail
+          Resource: "*"
+          # Restrict sends to our own verified identities.
+          Condition:
+            StringLike:
+              ses:FromAddress: "*@safeday.com.au"
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:GetObject
+            - s3:RestoreObject
+          Resource:
+            - !Sub "arn:aws:s3:::${self:custom.prefix}-footage/*"
+        - Effect: Allow
+          Action:
+            - s3:ListBucket
+          Resource:
+            - !Sub "arn:aws:s3:::${self:custom.prefix}-footage"
+
+custom:
+  prefix: ${self:service}-${self:provider.stage}
+  secretName: ${self:service}/${self:provider.stage}/app
+
+  # Email domains allowed to access footage history (comma-separated). Mirrors
+  # the default in src/lib/footageAccess.js; edit here to change per deploy.
+  footageAllowedDomains: "ascensioncloudsolutions.com,artoflogic.ai,barrickgroup.au"
+
+  # --- per-stage configuration (key by stage; `default` is the fallback) ---
+
+  # CORS: currently wildcard ('*') for all stages.
+  # NOTE: a restricted prod allow-list (https://safeday.com.au) was reverted per
+  # request. To re-enable later, add a `prod:` block here with allowedOrigins etc.
+  cors:
+    default: true
+
+  # Footage Function URL CORS (separate from the HTTP API).
+  fnUrlCors:
+    default: true
+
+  publicBaseUrl:
+    default: http://localhost:3000
+    prod: https://safeday.com.au/
+
+  emailProvider:
+    default: mailtrap
+    prod: ses
+
+  sesFrom:
+    default: ""
+    prod: no-reply@safeday.com.au
+
+package:
+  patterns:
+    - "!db_dump/**"
+    - "!scripts/**"
+    - "!**/*.http"
+    - "!**/*.postman_collection.json"
+
+functions:
+  # ---- REST: one Lambda per router, dispatching internally on routeKey ----
+  auth:
+    handler: src/handlers/auth.handler
+    events:
+      - httpApi: { path: "/api/v1/auth/login", method: post }
+      - httpApi: { path: "/api/v1/auth/refresh", method: post }
+      - httpApi: { path: "/api/v1/auth/forgot-password", method: post }
+      - httpApi: { path: "/api/v1/auth/set-password", method: post }
+      - httpApi: { path: "/api/v1/auth/me", method: get }
+
+  alerts:
+    handler: src/handlers/alerts.handler
+    events:
+      - httpApi: { path: "/api/v1/alerts", method: get }
+      - httpApi: { path: "/api/v1/alerts/{alert_id}", method: get }
+      - httpApi: { path: "/api/v1/alerts/{alert_id}/decision", method: post }
+      - httpApi: { path: "/api/v1/alerts/{alert_id}/retrieve", method: post }
+      - httpApi: { path: "/api/v1/restore-requests", method: get }
+      - httpApi: { path: "/api/v1/restore-requests/{request_id}/approve", method: post }
+      - httpApi: { path: "/api/v1/restore-requests/{request_id}/deny", method: post }
+      - httpApi: { path: "/api/v1/alerts/{alert_id}/footage-status", method: get }
+
+  settings:
+    handler: src/handlers/settings.handler
+    events:
+      - httpApi: { path: "/api/v1/settings", method: get }
+      - httpApi: { path: "/api/v1/settings", method: patch }
+
+  sites:
+    handler: src/handlers/sites.handler
+    events:
+      - httpApi: { path: "/api/v1/sites", method: get }
+      - httpApi: { path: "/api/v1/sites/{site_id}/users", method: get }
+      - httpApi: { path: "/api/v1/sites/{site_id}/users", method: post }
+      - httpApi: { path: "/api/v1/sites/{site_id}/users/{user_id}", method: delete }
+      - httpApi: { path: "/api/v1/sites/{site_id}/cameras", method: get }
+      - httpApi: { path: "/api/v1/sites/{site_id}/audit-log", method: get }
+
+  admin:
+    handler: src/handlers/admin.handler
+    events:
+      - httpApi: { path: "/api/v1/admin/organizations", method: get }
+      - httpApi: { path: "/api/v1/admin/organizations", method: post }
+      - httpApi: { path: "/api/v1/admin/organizations/{organization_id}", method: delete }
+      - httpApi: { path: "/api/v1/admin/organizations/{organization_id}/sites", method: get }
+      - httpApi: { path: "/api/v1/admin/organizations/{organization_id}/sites", method: post }
+      - httpApi: { path: "/api/v1/admin/sites", method: post }
+      - httpApi: { path: "/api/v1/admin/sites", method: get }
+      - httpApi: { path: "/api/v1/admin/sites/{site_id}/test-connection", method: post }
+      - httpApi: { path: "/api/v1/admin/sites/{site_id}/cameras", method: get }
+      - httpApi: { path: "/api/v1/admin/sites/{site_id}", method: delete }
+      - httpApi: { path: "/api/v1/admin/users", method: get }
+      - httpApi: { path: "/api/v1/admin/users", method: post }
+      - httpApi: { path: "/api/v1/admin/users/{user_id}/resend-invite", method: post }
+      - httpApi: { path: "/api/v1/admin/users", method: put }
+      - httpApi: { path: "/api/v1/admin/users/{user_id}", method: delete }
+      - httpApi: { path: "/api/v1/admin/test-email", method: post }
+      - httpApi: { path: "/api/v1/admin/test-alert", method: post }
+      - httpApi: { path: "/api/v1/admin/footage/archive-sweep", method: post }
+
+  webhooks:
+    handler: src/handlers/webhooks.handler
+    events:
+      - httpApi: { path: "/api/v1/webhooks/alert", method: post }
+
+  # ---- Footage archiver: SLA-lapsed clips -> Glacier Deep Archive ----
+  archiver:
+    handler: src/handlers/archiver.handler
+    timeout: 300
+    events:
+      - schedule: rate(1 day)
+
+  # ---- Footage: streaming Function URL (bypasses API Gateway 10MB/29s) ----
+  footage:
+    handler: src/handlers/footage.handler
+    timeout: 300
+    url:
+      invokeMode: RESPONSE_STREAM
+      cors: ${self:custom.fnUrlCors.${self:provider.stage}, self:custom.fnUrlCors.default}
+
+  # ---- WebSocket API: real-time alert notifications ----
+  wsConnect:
+    handler: src/handlers/ws.connect
+    events:
+      - websocket: { route: $connect }
+  wsDisconnect:
+    handler: src/handlers/ws.disconnect
+    events:
+      - websocket: { route: $disconnect }
+  wsDefault:
+    handler: src/handlers/ws.defaultRoute
+    events:
+      - websocket: { route: $default }
+
+resources:
+  Resources:
+    # ---- Secrets (STUB) ---------------------------------------------------
+    # Created with placeholder values so the stack deploys. Populate real
+    # values out-of-band (see README) — CloudFormation won't overwrite them on
+    # later deploys because the template's SecretString stays unchanged.
+    AppSecret:
+      Type: AWS::SecretsManager::Secret
+      Properties:
+        Name: ${self:custom.secretName}
+        Description: SafeDay backend secrets (JWT, Nx encryption, webhook, Mailtrap)
+        SecretString: >-
+          {"secretKey":"REPLACE_ME","nxCredentialEncryptionKey":"REPLACE_ME","webhookSecret":"REPLACE_ME","mailtrapApiToken":""}
+
+    # ---- DynamoDB tables --------------------------------------------------
+    OrganizationsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-organizations
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - { AttributeName: id, AttributeType: S }
+        KeySchema:
+          - { AttributeName: id, KeyType: HASH }
+
+    SitesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-sites
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - { AttributeName: id, AttributeType: S }
+          - { AttributeName: site_token, AttributeType: S }
+          - { AttributeName: organization_id, AttributeType: S }
+        KeySchema:
+          - { AttributeName: id, KeyType: HASH }
+        GlobalSecondaryIndexes:
+          - IndexName: site_token-index
+            KeySchema:
+              - { AttributeName: site_token, KeyType: HASH }
+            Projection: { ProjectionType: ALL }
+          - IndexName: organization_id-index
+            KeySchema:
+              - { AttributeName: organization_id, KeyType: HASH }
+            Projection: { ProjectionType: ALL }
+
+    UsersTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-users
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - { AttributeName: id, AttributeType: S }
+          - { AttributeName: email, AttributeType: S }
+          - { AttributeName: organization_id, AttributeType: S }
+        KeySchema:
+          - { AttributeName: id, KeyType: HASH }
+        GlobalSecondaryIndexes:
+          - IndexName: email-index
+            KeySchema:
+              - { AttributeName: email, KeyType: HASH }
+            Projection: { ProjectionType: ALL }
+          - IndexName: organization_id-index
+            KeySchema:
+              - { AttributeName: organization_id, KeyType: HASH }
+            Projection: { ProjectionType: ALL }
+
+    UserSitePermissionsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-user-site-permissions
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - { AttributeName: user_id, AttributeType: S }
+          - { AttributeName: site_id, AttributeType: S }
+        KeySchema:
+          - { AttributeName: user_id, KeyType: HASH }
+          - { AttributeName: site_id, KeyType: RANGE }
+        GlobalSecondaryIndexes:
+          - IndexName: site_id-index
+            KeySchema:
+              - { AttributeName: site_id, KeyType: HASH }
+            Projection: { ProjectionType: ALL }
+
+    AlertsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-alerts
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - { AttributeName: id, AttributeType: S }
+          - { AttributeName: site_id, AttributeType: S }
+          - { AttributeName: created_at, AttributeType: S }
+        KeySchema:
+          - { AttributeName: id, KeyType: HASH }
+        GlobalSecondaryIndexes:
+          - IndexName: site_id-created_at-index
+            KeySchema:
+              - { AttributeName: site_id, KeyType: HASH }
+              - { AttributeName: created_at, KeyType: RANGE }
+            Projection: { ProjectionType: ALL }
+
+    FootageAccessLogTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-footage-access-log
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - { AttributeName: id, AttributeType: S }
+          - { AttributeName: site_id, AttributeType: S }
+          - { AttributeName: accessed_at, AttributeType: S }
+        KeySchema:
+          - { AttributeName: id, KeyType: HASH }
+        GlobalSecondaryIndexes:
+          - IndexName: site_id-accessed_at-index
+            KeySchema:
+              - { AttributeName: site_id, KeyType: HASH }
+              - { AttributeName: accessed_at, KeyType: RANGE }
+            Projection: { ProjectionType: ALL }
+
+    FootageRestoreRequestsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-footage-restore-requests
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - { AttributeName: id, AttributeType: S }
+          - { AttributeName: organization_id, AttributeType: S }
+          - { AttributeName: requested_at, AttributeType: S }
+        KeySchema:
+          - { AttributeName: id, KeyType: HASH }
+        GlobalSecondaryIndexes:
+          - IndexName: organization_id-requested_at-index
+            KeySchema:
+              - { AttributeName: organization_id, KeyType: HASH }
+              - { AttributeName: requested_at, KeyType: RANGE }
+            Projection: { ProjectionType: ALL }
+
+    FootageBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.prefix}-footage
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: aws:kms
+        VersioningConfiguration:
+          Status: Enabled
+
+    DeviceTokensTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-device-tokens
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - { AttributeName: id, AttributeType: S }
+          - { AttributeName: user_id, AttributeType: S }
+        KeySchema:
+          - { AttributeName: id, KeyType: HASH }
+        GlobalSecondaryIndexes:
+          - IndexName: user_id-index
+            KeySchema:
+              - { AttributeName: user_id, KeyType: HASH }
+            Projection: { ProjectionType: ALL }
+
+    ConnectionsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-connections
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - { AttributeName: connectionId, AttributeType: S }
+          - { AttributeName: user_id, AttributeType: S }
+        KeySchema:
+          - { AttributeName: connectionId, KeyType: HASH }
+        GlobalSecondaryIndexes:
+          - IndexName: user_id-index
+            KeySchema:
+              - { AttributeName: user_id, KeyType: HASH }
+            Projection: { ProjectionType: ALL }
+
+# Note: Serverless auto-generates the `HttpApiUrl` and `ServiceEndpointWebsocket`
+# stack outputs, so we don't define our own (a same-named Output would merge into
+# an invalid map).
