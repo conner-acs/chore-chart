@@ -88,6 +88,24 @@ export const organizationResponse = (o) => ({
   require_restore_approval: o.require_restore_approval ?? false,
 });
 
+export const restoreRequestResponse = (r) => ({
+  id: r.id,
+  alert_id: r.alert_id,
+  site_id: r.site_id,
+  organization_id: r.organization_id,
+  camera_id: r.camera_id,
+  alert_type: r.alert_type,
+  requested_by: r.requested_by,
+  requested_by_label: r.requested_by_label,
+  requested_at: r.requested_at,
+  note: n(r.note),
+  status: r.status,
+  reviewed_by: n(r.reviewed_by),
+  reviewed_by_label: n(r.reviewed_by_label),
+  reviewed_at: n(r.reviewed_at),
+  review_note: n(r.review_note),
+});
+
 export const siteSummary = (s) => ({ id: s.id, name: s.name });
 
 export const createSiteResponse = (s, nxOk, nxDetail) => ({

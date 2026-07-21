@@ -25,6 +25,10 @@ export const TABLES = {
   userSitePermissions: t("user-site-permissions", "USER_SITE_PERMISSIONS_TABLE"),
   alerts: t("alerts", "ALERTS_TABLE"),
   footageAccessLog: t("footage-access-log", "FOOTAGE_ACCESS_LOG_TABLE"),
+  footageRestoreRequests: t(
+    "footage-restore-requests",
+    "FOOTAGE_RESTORE_REQUESTS_TABLE"
+  ),
   deviceTokens: t("device-tokens", "DEVICE_TOKENS_TABLE"),
   connections: t("connections", "CONNECTIONS_TABLE"),
 };

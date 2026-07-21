@@ -14,10 +14,20 @@ import { listUserIdsForSite } from "../lib/repo/permissions.js";
 import { getUser } from "../lib/repo/users.js";
 import { getSite } from "../lib/repo/sites.js";
 import { sendAlertReviewEmail } from "../services/email.js";
-import { alertResponse } from "../lib/presenters.js";
-import { alertDecisionSchema } from "../schemas/index.js";
+import { alertResponse, restoreRequestResponse } from "../lib/presenters.js";
+import { alertDecisionSchema, optionalNoteSchema } from "../schemas/index.js";
 import { getOrganization } from "../lib/repo/organizations.js";
-import { DEFAULT_SLA_DAYS, orgSlaDays, slaFields } from "../lib/sla.js";
+import {
+  DEFAULT_SLA_DAYS,
+  orgSlaDays,
+  slaFields,
+  refreshedDeadlineIso,
+} from "../lib/sla.js";
+import {
+  getRestoreRequest,
+  putRestoreRequest,
+  listRestoreRequestsByOrg,
+} from "../lib/repo/footageRestoreRequests.js";
 
 const VALID_STATUSES = ["unprocessed", "discarded", "submitted_for_review", "incident"];
 
@@ -268,6 +278,140 @@ async function submitDecision({ user, params, body }) {
   return alertResponse(alert);
 }
 
+// ---- Footage SLA: retrieve (refresh the clock) + restore-request approval ----
+
+function buildRestoreRequest(alert, user, note, now) {
+  return {
+    id: newId(),
+    alert_id: alert.id,
+    site_id: alert.site_id,
+    organization_id: alert.organization_id ?? user.organization_id,
+    camera_id: alert.camera_id,
+    alert_type: alert.alert_type,
+    requested_by: user.id,
+    requested_by_label: user.full_name || user.email,
+    requested_at: now,
+    note: note ?? null,
+    status: "pending",
+    reviewed_by: null,
+    reviewed_by_label: null,
+    reviewed_at: null,
+    review_note: null,
+  };
+}
+
+// Retrieve an overdue alert. Self-service (refreshes the SLA clock) unless the
+// org requires approval AND the caller is a non-admin reviewer, in which case a
+// pending restore request is raised for a site_admin to approve. Admins always
+// retrieve directly (they are the approver). 409 if the alert is not overdue.
+async function retrieveFootage({ user, params, body }) {
+  const alert = await getAlert(params.alert_id);
+  if (!alert) throw new HttpError(404, "Alert not found");
+  if (!(await userCanAccessSite(user, alert.site_id))) {
+    throw new HttpError(403, "Access denied");
+  }
+  if (user.role === "operator" && !operatorCanSeeAlert(alert)) {
+    throw new HttpError(403, "Access denied");
+  }
+
+  const org = user.organization_id
+    ? await getOrganization(user.organization_id)
+    : null;
+  const slaDays = orgSlaDays(org);
+  const nowMs = Date.now();
+  if (!slaFields(alert, slaDays, nowMs).overdue) {
+    throw new HttpError(409, "Alert is not overdue; nothing to retrieve");
+  }
+
+  const now = nowIso();
+  const requireApproval = !!(org && org.require_restore_approval);
+
+  // Non-admin reviewer + approval required => raise a request, don't refresh.
+  if (requireApproval && !isAdminRole(user.role)) {
+    const orgId = alert.organization_id ?? user.organization_id;
+    const pending = (await listRestoreRequestsByOrg(orgId)).find(
+      (r) => r.alert_id === alert.id && r.status === "pending"
+    );
+    if (pending) {
+      return {
+        result: "already_pending",
+        request: restoreRequestResponse(pending),
+        alert: alertResponse(alert, slaFields(alert, slaDays, nowMs)),
+      };
+    }
+    const req = buildRestoreRequest(alert, user, body?.note, now);
+    await putRestoreRequest(req);
+    await logAction(alert, user, "restore_requested", now);
+    return {
+      result: "pending_approval",
+      request: restoreRequestResponse(req),
+      alert: alertResponse(alert, slaFields(alert, slaDays, nowMs)),
+    };
+  }
+
+  // Self-service: refresh the SLA clock so the alert is actionable again.
+  alert.sla_deadline = refreshedDeadlineIso(slaDays, nowMs);
+  await putAlert(alert);
+  await logAction(alert, user, "retrieve", now);
+  return {
+    result: "refreshed",
+    request: null,
+    alert: alertResponse(alert, slaFields(alert, slaDays, Date.now())),
+  };
+}
+
+// Site-admin: the org's restore requests (newest first) for the Requests queue.
+async function listRestoreRequests({ user, query }) {
+  if (!user.organization_id) return [];
+  let requests = await listRestoreRequestsByOrg(user.organization_id);
+  if (query.status) {
+    requests = requests.filter((r) => r.status === query.status);
+  }
+  return requests.map(restoreRequestResponse);
+}
+
+// Approve or deny a pending restore request. Approval refreshes the alert's SLA
+// clock so it can be actioned again; both outcomes record the reviewer + note.
+async function reviewRestore(user, requestId, approved, note) {
+  const req = await getRestoreRequest(requestId);
+  if (!req) throw new HttpError(404, "Restore request not found");
+  if (user.role !== "superuser" && req.organization_id !== user.organization_id) {
+    throw new HttpError(403, "Access denied");
+  }
+  if (req.status !== "pending") {
+    throw new HttpError(409, `Request already ${req.status}`);
+  }
+
+  const now = nowIso();
+  req.status = approved ? "approved" : "denied";
+  req.reviewed_by = user.id;
+  req.reviewed_by_label = user.full_name || user.email;
+  req.reviewed_at = now;
+  req.review_note = note ?? null;
+  await putRestoreRequest(req);
+
+  const alert = await getAlert(req.alert_id);
+  let alertOut = null;
+  if (alert) {
+    const slaDays = orgSlaDays(await getOrganization(req.organization_id));
+    if (approved) {
+      alert.sla_deadline = refreshedDeadlineIso(slaDays, Date.now());
+      await putAlert(alert);
+    }
+    await logAction(alert, user, approved ? "restore_approved" : "restore_denied", now);
+    alertOut = alertResponse(alert, slaFields(alert, slaDays, Date.now()));
+  }
+  return { request: restoreRequestResponse(req), alert: alertOut };
+}
+
+async function approveRestore({ user, params, body }) {
+  return reviewRestore(user, params.request_id, true, body?.note);
+}
+
+async function denyRestore({ user, params, body }) {
+  return reviewRestore(user, params.request_id, false, body?.note);
+}
+
 export const handler = createRouter({
   "GET /api/v1/alerts": { fn: listAlerts, auth: "user" },
   "GET /api/v1/alerts/{alert_id}": { fn: getOneAlert, auth: "user" },
@@ -275,5 +419,24 @@ export const handler = createRouter({
     fn: submitDecision,
     auth: "user",
     schema: alertDecisionSchema,
+  },
+  "POST /api/v1/alerts/{alert_id}/retrieve": {
+    fn: retrieveFootage,
+    auth: "user",
+    schema: optionalNoteSchema,
+  },
+  "GET /api/v1/restore-requests": {
+    fn: listRestoreRequests,
+    auth: "site_admin",
+  },
+  "POST /api/v1/restore-requests/{request_id}/approve": {
+    fn: approveRestore,
+    auth: "site_admin",
+    schema: optionalNoteSchema,
+  },
+  "POST /api/v1/restore-requests/{request_id}/deny": {
+    fn: denyRestore,
+    auth: "site_admin",
+    schema: optionalNoteSchema,
   },
 });

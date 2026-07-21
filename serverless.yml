@@ -29,6 +29,7 @@ provider:
     USER_SITE_PERMISSIONS_TABLE: ${self:custom.prefix}-user-site-permissions
     ALERTS_TABLE: ${self:custom.prefix}-alerts
     FOOTAGE_ACCESS_LOG_TABLE: ${self:custom.prefix}-footage-access-log
+    FOOTAGE_RESTORE_REQUESTS_TABLE: ${self:custom.prefix}-footage-restore-requests
     DEVICE_TOKENS_TABLE: ${self:custom.prefix}-device-tokens
     CONNECTIONS_TABLE: ${self:custom.prefix}-connections
     # Email domains permitted to access footage HISTORY (comma-separated).
@@ -138,6 +139,10 @@ functions:
       - httpApi: { path: "/api/v1/alerts", method: get }
       - httpApi: { path: "/api/v1/alerts/{alert_id}", method: get }
       - httpApi: { path: "/api/v1/alerts/{alert_id}/decision", method: post }
+      - httpApi: { path: "/api/v1/alerts/{alert_id}/retrieve", method: post }
+      - httpApi: { path: "/api/v1/restore-requests", method: get }
+      - httpApi: { path: "/api/v1/restore-requests/{request_id}/approve", method: post }
+      - httpApi: { path: "/api/v1/restore-requests/{request_id}/deny", method: post }
 
   settings:
     handler: src/handlers/settings.handler
@@ -321,6 +326,24 @@ resources:
             KeySchema:
               - { AttributeName: site_id, KeyType: HASH }
               - { AttributeName: accessed_at, KeyType: RANGE }
+            Projection: { ProjectionType: ALL }
+
+    FootageRestoreRequestsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.prefix}-footage-restore-requests
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - { AttributeName: id, AttributeType: S }
+          - { AttributeName: organization_id, AttributeType: S }
+          - { AttributeName: requested_at, AttributeType: S }
+        KeySchema:
+          - { AttributeName: id, KeyType: HASH }
+        GlobalSecondaryIndexes:
+          - IndexName: organization_id-requested_at-index
+            KeySchema:
+              - { AttributeName: organization_id, KeyType: HASH }
+              - { AttributeName: requested_at, KeyType: RANGE }
             Projection: { ProjectionType: ALL }
 
     DeviceTokensTable:

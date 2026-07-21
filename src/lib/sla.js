@@ -42,3 +42,8 @@ export const slaFields = (alert, slaDays, nowMs) => {
     overdue: OPEN_STATUSES.includes(alert.status) && nowMs > deadlineMs,
   };
 };
+
+// A fresh deadline, written to alert.sla_deadline when an overdue alert is
+// retrieved/restored so its clock restarts from now.
+export const refreshedDeadlineIso = (slaDays, nowMs) =>
+  new Date(nowMs + slaDays * DAY_MS).toISOString();
