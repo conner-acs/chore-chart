@@ -32,6 +32,7 @@ provider:
     FOOTAGE_RESTORE_REQUESTS_TABLE: ${self:custom.prefix}-footage-restore-requests
     DEVICE_TOKENS_TABLE: ${self:custom.prefix}-device-tokens
     CONNECTIONS_TABLE: ${self:custom.prefix}-connections
+    FOOTAGE_BUCKET: ${self:custom.prefix}-footage
     # Email domains permitted to access footage HISTORY (comma-separated).
     # Overridable per deploy; defaults live in src/lib/footageAccess.js.
     FOOTAGE_ALLOWED_EMAIL_DOMAINS: ${self:custom.footageAllowedDomains}
@@ -82,6 +83,18 @@ provider:
           Condition:
             StringLike:
               ses:FromAddress: "*@safeday.com.au"
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:GetObject
+            - s3:RestoreObject
+          Resource:
+            - !Sub "arn:aws:s3:::${self:custom.prefix}-footage/*"
+        - Effect: Allow
+          Action:
+            - s3:ListBucket
+          Resource:
+            - !Sub "arn:aws:s3:::${self:custom.prefix}-footage"
 
 custom:
   prefix: ${self:service}-${self:provider.stage}
@@ -143,6 +156,7 @@ functions:
       - httpApi: { path: "/api/v1/restore-requests", method: get }
       - httpApi: { path: "/api/v1/restore-requests/{request_id}/approve", method: post }
       - httpApi: { path: "/api/v1/restore-requests/{request_id}/deny", method: post }
+      - httpApi: { path: "/api/v1/alerts/{alert_id}/footage-status", method: get }
 
   settings:
     handler: src/handlers/settings.handler
@@ -180,11 +194,19 @@ functions:
       - httpApi: { path: "/api/v1/admin/users/{user_id}", method: delete }
       - httpApi: { path: "/api/v1/admin/test-email", method: post }
       - httpApi: { path: "/api/v1/admin/test-alert", method: post }
+      - httpApi: { path: "/api/v1/admin/footage/archive-sweep", method: post }
 
   webhooks:
     handler: src/handlers/webhooks.handler
     events:
       - httpApi: { path: "/api/v1/webhooks/alert", method: post }
+
+  # ---- Footage archiver: SLA-lapsed clips -> Glacier Deep Archive ----
+  archiver:
+    handler: src/handlers/archiver.handler
+    timeout: 300
+    events:
+      - schedule: rate(1 day)
 
   # ---- Footage: streaming Function URL (bypasses API Gateway 10MB/29s) ----
   footage:
@@ -345,6 +367,22 @@ resources:
               - { AttributeName: organization_id, KeyType: HASH }
               - { AttributeName: requested_at, KeyType: RANGE }
             Projection: { ProjectionType: ALL }
+
+    FootageBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.prefix}-footage
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: aws:kms
+        VersioningConfiguration:
+          Status: Enabled
 
     DeviceTokensTable:
       Type: AWS::DynamoDB::Table

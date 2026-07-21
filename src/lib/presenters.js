@@ -50,6 +50,8 @@ export const alertResponse = (a, sla = {}) => ({
   // Footage SLA (see lib/sla.js): deadline to action this alert + overdue flag.
   sla_deadline: sla.sla_deadline ?? null,
   overdue: sla.overdue ?? false,
+  // Footage lifecycle (see lib/footageArchive.js): hot | archived | restoring | restored.
+  footage_state: a.footage_state ?? "hot",
 });
 
 export const siteResponse = (s) => ({
@@ -86,6 +88,7 @@ export const organizationResponse = (o) => ({
   name: o.name,
   footage_sla_days: orgSlaDays(o),
   require_restore_approval: o.require_restore_approval ?? false,
+  archived_footage_count: o.archived_footage_count ?? 0,
 });
 
 export const restoreRequestResponse = (r) => ({

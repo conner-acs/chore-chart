@@ -16,7 +16,7 @@ import { getSite } from "../lib/repo/sites.js";
 import { sendAlertReviewEmail } from "../services/email.js";
 import { alertResponse, restoreRequestResponse } from "../lib/presenters.js";
 import { alertDecisionSchema, optionalNoteSchema } from "../schemas/index.js";
-import { getOrganization } from "../lib/repo/organizations.js";
+import { getOrganization, decrementArchivedCount } from "../lib/repo/organizations.js";
 import {
   DEFAULT_SLA_DAYS,
   orgSlaDays,
@@ -28,6 +28,7 @@ import {
   putRestoreRequest,
   listRestoreRequestsByOrg,
 } from "../lib/repo/footageRestoreRequests.js";
+import { initiateRestore, isRestoreComplete } from "../lib/footageArchive.js";
 
 const VALID_STATUSES = ["unprocessed", "discarded", "submitted_for_review", "incident"];
 
@@ -300,10 +301,29 @@ function buildRestoreRequest(alert, user, note, now) {
   };
 }
 
-// Retrieve an overdue alert. Self-service (refreshes the SLA clock) unless the
-// org requires approval AND the caller is a non-admin reviewer, in which case a
-// pending restore request is raised for a site_admin to approve. Admins always
-// retrieve directly (they are the approver). 409 if the alert is not overdue.
+// Apply the retrieve action to an alert: restore archived footage from Glacier
+// and/or refresh the SLA clock if the alert is overdue. Persists the alert.
+// Returns "restoring" if a restore was kicked off, else "refreshed".
+async function applyRetrieveAction(alert, slaDays, nowMs) {
+  let result = "refreshed";
+  if ((alert.footage_state ?? "hot") === "archived" && alert.footage_key) {
+    await initiateRestore(alert.footage_key);
+    alert.footage_state = "restoring";
+    alert.restore_requested_at = new Date(nowMs).toISOString();
+    result = "restoring";
+  }
+  if (slaFields(alert, slaDays, nowMs).overdue) {
+    alert.sla_deadline = refreshedDeadlineIso(slaDays, nowMs);
+  }
+  await putAlert(alert);
+  return result;
+}
+
+// Retrieve a past-due or archived alert. Self-service (restores footage /
+// refreshes the SLA clock) unless the org requires approval AND the caller is a
+// non-admin reviewer, in which case a pending restore request is raised for a
+// site_admin to approve. Admins always retrieve directly. 409 if the alert is
+// current and its footage is still hot.
 async function retrieveFootage({ user, params, body }) {
   const alert = await getAlert(params.alert_id);
   if (!alert) throw new HttpError(404, "Alert not found");
@@ -319,8 +339,10 @@ async function retrieveFootage({ user, params, body }) {
     : null;
   const slaDays = orgSlaDays(org);
   const nowMs = Date.now();
-  if (!slaFields(alert, slaDays, nowMs).overdue) {
-    throw new HttpError(409, "Alert is not overdue; nothing to retrieve");
+  const overdue = slaFields(alert, slaDays, nowMs).overdue;
+  const archived = (alert.footage_state ?? "hot") === "archived";
+  if (!overdue && !archived) {
+    throw new HttpError(409, "Alert is current; nothing to retrieve");
   }
 
   const now = nowIso();
@@ -349,12 +371,16 @@ async function retrieveFootage({ user, params, body }) {
     };
   }
 
-  // Self-service: refresh the SLA clock so the alert is actionable again.
-  alert.sla_deadline = refreshedDeadlineIso(slaDays, nowMs);
-  await putAlert(alert);
-  await logAction(alert, user, "retrieve", now);
+  // Self-service: restore archived footage and/or refresh the SLA clock.
+  const result = await applyRetrieveAction(alert, slaDays, nowMs);
+  await logAction(
+    alert,
+    user,
+    result === "restoring" ? "restore_initiated" : "retrieve",
+    now
+  );
   return {
-    result: "refreshed",
+    result,
     request: null,
     alert: alertResponse(alert, slaFields(alert, slaDays, Date.now())),
   };
@@ -395,8 +421,7 @@ async function reviewRestore(user, requestId, approved, note) {
   if (alert) {
     const slaDays = orgSlaDays(await getOrganization(req.organization_id));
     if (approved) {
-      alert.sla_deadline = refreshedDeadlineIso(slaDays, Date.now());
-      await putAlert(alert);
+      await applyRetrieveAction(alert, slaDays, Date.now());
     }
     await logAction(alert, user, approved ? "restore_approved" : "restore_denied", now);
     alertOut = alertResponse(alert, slaFields(alert, slaDays, Date.now()));
@@ -412,6 +437,38 @@ async function denyRestore({ user, params, body }) {
   return reviewRestore(user, params.request_id, false, body?.note);
 }
 
+// Poll an alert's footage state; if a Glacier restore has finished, flip
+// restoring -> restored and decrement the org's archived counter.
+async function checkFootageStatus({ user, params }) {
+  const alert = await getAlert(params.alert_id);
+  if (!alert) throw new HttpError(404, "Alert not found");
+  if (!(await userCanAccessSite(user, alert.site_id))) {
+    throw new HttpError(403, "Access denied");
+  }
+  if (user.role === "operator" && !operatorCanSeeAlert(alert)) {
+    throw new HttpError(403, "Access denied");
+  }
+  let state = alert.footage_state ?? "hot";
+  if (
+    state === "restoring" &&
+    alert.footage_key &&
+    (await isRestoreComplete(alert.footage_key))
+  ) {
+    alert.footage_state = "restored";
+    alert.restored_at = nowIso();
+    await putAlert(alert);
+    const site = await getSite(alert.site_id);
+    if (site) await decrementArchivedCount(site.organization_id);
+    state = "restored";
+  }
+  return {
+    alert_id: alert.id,
+    footage_state: state,
+    archived_at: alert.archived_at ?? null,
+    restored_at: alert.restored_at ?? null,
+  };
+}
+
 export const handler = createRouter({
   "GET /api/v1/alerts": { fn: listAlerts, auth: "user" },
   "GET /api/v1/alerts/{alert_id}": { fn: getOneAlert, auth: "user" },
@@ -424,6 +481,10 @@ export const handler = createRouter({
     fn: retrieveFootage,
     auth: "user",
     schema: optionalNoteSchema,
+  },
+  "GET /api/v1/alerts/{alert_id}/footage-status": {
+    fn: checkFootageStatus,
+    auth: "user",
   },
   "GET /api/v1/restore-requests": {
     fn: listRestoreRequests,

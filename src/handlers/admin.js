@@ -3,6 +3,7 @@ import { HttpError } from "../lib/response.js";
 import { newId } from "../lib/ids.js";
 import { getSecret, getOrgNxCredentials } from "../lib/secrets.js";
 import { receiveAlert } from "./webhooks.js";
+import { sweep } from "./archiver.js";
 import { userCanAccessSite, getAccessibleSiteIds } from "../lib/permissions.js";
 import { hashPassword, createSetPasswordToken } from "../lib/auth.js";
 import { encryptNxPassword, decryptNxPassword } from "../lib/fernet.js";
@@ -459,7 +460,16 @@ async function testAlert({ user, body }) {
   return { ...alert, site_name: site.name };
 }
 
+// On-demand footage archiver trigger (also runs on a schedule; see archiver.js).
+async function runArchiveSweep() {
+  return sweep();
+}
+
 export const handler = createRouter({
+  "POST /api/v1/admin/footage/archive-sweep": {
+    fn: runArchiveSweep,
+    auth: "superuser",
+  },
   "GET /api/v1/admin/organizations": { fn: listOrgs, auth: "superuser" },
   "POST /api/v1/admin/organizations": {
     fn: createOrg,
