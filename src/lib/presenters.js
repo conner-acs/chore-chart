@@ -14,6 +14,7 @@ export const userResponse = (u) => ({
   id: u.id,
   email: u.email,
   full_name: u.full_name,
+  phone: n(u.phone),
   role: u.role,
   organization_id: u.organization_id,
   account_created: u.account_created,
@@ -122,9 +123,22 @@ export const createUserResponse = (u) => ({
   id: u.id,
   email: u.email,
   full_name: u.full_name,
+  phone: n(u.phone),
   role: u.role,
   organization_id: u.organization_id,
   is_active: u.is_active,
+});
+
+// Org user row for the site-admin Users page: identity + phone + role + the
+// sites this user is permitted on ([{ id, name }]).
+export const orgUserListItem = (u, sites) => ({
+  id: u.id,
+  email: u.email,
+  full_name: u.full_name,
+  phone: n(u.phone),
+  role: u.role,
+  is_active: u.is_active,
+  sites,
 });
 
 export const updateUserResponse = (u, sites) => ({
