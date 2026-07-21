@@ -156,3 +156,11 @@ export const orgUserCreateSchema = Joi.object({
   role: Joi.string().valid("operator", "site_admin").required(),
   site_ids: Joi.array().items(uuid).default([]),
 });
+
+// Site-admin edit of an org user (PATCH /api/v1/users/{id}). At least one field;
+// role capped to operator/site_admin (superuser impossible) and re-checked
+// against the caller's rank in the handler. site_ids REPLACES the user's set.
+export const orgUserUpdateSchema = Joi.object({
+  role: Joi.string().valid("operator", "site_admin"),
+  site_ids: Joi.array().items(uuid),
+}).min(1);

@@ -57,6 +57,7 @@ import {
   createUserSchema,
   updateUserSchema,
   orgUserCreateSchema,
+  orgUserUpdateSchema,
   testAlertSchema,
 } from "../schemas/index.js";
 
@@ -550,6 +551,68 @@ async function createOrgUser({ user: caller, body }) {
   return createUserResponse(user);
 }
 
+// Edit an org user's role and/or sites (PATCH /api/v1/users/{user_id}). Same
+// scoping as create (SECURITY_RULES 1.2/1.5): target must be in the caller's
+// org, not the caller themselves, and not ranked above the caller; role is
+// capped to the caller's rank; site_ids must be a subset of the caller's sites
+// (and belong to the org) and REPLACE the user's current permission set.
+async function updateOrgUser({ user: caller, params, body }) {
+  const orgId = caller.organization_id;
+  if (!orgId) throw new HttpError(400, "No organization for this account");
+  const target = await getUser(params.user_id);
+  if (!target || target.organization_id !== orgId) {
+    throw new HttpError(404, "User not found");
+  }
+  if (target.id === caller.id) {
+    throw new HttpError(403, "You cannot edit your own account here");
+  }
+  if (ROLE_RANK[target.role] > ROLE_RANK[caller.role]) {
+    throw new HttpError(403, "Cannot edit a user ranked above you");
+  }
+
+  if (body.role !== undefined) {
+    if (ROLE_RANK[body.role] > ROLE_RANK[caller.role]) {
+      throw new HttpError(403, "Cannot set a role above your own");
+    }
+    target.role = body.role;
+  }
+
+  let sites = null;
+  if (body.site_ids !== undefined) {
+    const siteIds = [...new Set(body.site_ids)];
+    const accessible = await getAccessibleSiteIds(caller); // null = superuser (all)
+    if (accessible !== null) {
+      const allowed = new Set(accessible);
+      if (siteIds.some((s) => !allowed.has(s))) {
+        throw new HttpError(403, "You can only assign sites you manage");
+      }
+    }
+    const orgSites = await listSitesByOrg(orgId);
+    const orgSiteIds = new Set(orgSites.map((s) => s.id));
+    if (siteIds.some((s) => !orgSiteIds.has(s))) {
+      throw new HttpError(404, "Unknown site for this organization");
+    }
+    await deleteAllForUser(target.id);
+    await Promise.all(
+      siteIds.map((sid) => putPermission({ id: newId(), user_id: target.id, site_id: sid }))
+    );
+    const nameById = new Map(orgSites.map((s) => [s.id, s.name]));
+    sites = siteIds.filter((id) => nameById.has(id)).map((id) => ({ id, name: nameById.get(id) }));
+  }
+
+  await putUser(target);
+
+  if (sites === null) {
+    const [ids, orgSites] = await Promise.all([
+      listSiteIdsForUser(target.id),
+      listSitesByOrg(orgId),
+    ]);
+    const nameById = new Map(orgSites.map((s) => [s.id, s.name]));
+    sites = ids.filter((id) => nameById.has(id)).map((id) => ({ id, name: nameById.get(id) }));
+  }
+  return orgUserListItem(target, sites);
+}
+
 export const handler = createRouter({
   "POST /api/v1/admin/footage/archive-sweep": {
     fn: runArchiveSweep,
@@ -562,6 +625,11 @@ export const handler = createRouter({
     auth: "site_admin",
     schema: orgUserCreateSchema,
     status: 201,
+  },
+  "PATCH /api/v1/users/{user_id}": {
+    fn: updateOrgUser,
+    auth: "site_admin",
+    schema: orgUserUpdateSchema,
   },
   "GET /api/v1/admin/organizations": { fn: listOrgs, auth: "superuser" },
   "POST /api/v1/admin/organizations": {
