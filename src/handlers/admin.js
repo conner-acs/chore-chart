@@ -496,7 +496,9 @@ async function listOrgUsers({ user: caller }) {
 // Create a new user in the caller's org. Enforces (SECURITY_RULES 1.2 / 1.5):
 //   - org = the caller's org (never cross-org; taken from the token)
 //   - role <= the caller's rank (schema already blocks superuser)
-//   - assigned sites are a subset of the caller's authorised sites AND in the org
+//   - assigned sites are any site IN the caller's org (a site_admin administers
+//     the whole org, not just sites they personally hold - see SECURITY_DECISIONS
+//     Entry 012); cross-org is impossible since orgId comes from the token.
 // Onboarding is invite-based: a random password is set + a set-password email sent.
 async function createOrgUser({ user: caller, body }) {
   const orgId = caller.organization_id;
@@ -507,13 +509,9 @@ async function createOrgUser({ user: caller, body }) {
   }
 
   const siteIds = [...new Set(body.site_ids || [])];
-  const accessible = await getAccessibleSiteIds(caller); // null = superuser (all)
-  if (accessible !== null) {
-    const allowed = new Set(accessible);
-    if (siteIds.some((s) => !allowed.has(s))) {
-      throw new HttpError(403, "You can only assign sites you manage");
-    }
-  }
+  // Any site in the caller's org may be assigned (org-membership is the boundary,
+  // not the caller's personal grants). orgId is token-derived, so this cannot
+  // reach another org's sites. See SECURITY_DECISIONS Entry 012.
   if (siteIds.length) {
     const orgSiteIds = new Set((await listSitesByOrg(orgId)).map((s) => s.id));
     if (siteIds.some((s) => !orgSiteIds.has(s))) {
@@ -554,8 +552,8 @@ async function createOrgUser({ user: caller, body }) {
 // Edit an org user's role and/or sites (PATCH /api/v1/users/{user_id}). Same
 // scoping as create (SECURITY_RULES 1.2/1.5): target must be in the caller's
 // org, not the caller themselves, and not ranked above the caller; role is
-// capped to the caller's rank; site_ids must be a subset of the caller's sites
-// (and belong to the org) and REPLACE the user's current permission set.
+// capped to the caller's rank; site_ids may be any sites IN the caller's org
+// (Entry 012) and REPLACE the user's current permission set.
 async function updateOrgUser({ user: caller, params, body }) {
   const orgId = caller.organization_id;
   if (!orgId) throw new HttpError(400, "No organization for this account");
@@ -580,13 +578,7 @@ async function updateOrgUser({ user: caller, params, body }) {
   let sites = null;
   if (body.site_ids !== undefined) {
     const siteIds = [...new Set(body.site_ids)];
-    const accessible = await getAccessibleSiteIds(caller); // null = superuser (all)
-    if (accessible !== null) {
-      const allowed = new Set(accessible);
-      if (siteIds.some((s) => !allowed.has(s))) {
-        throw new HttpError(403, "You can only assign sites you manage");
-      }
-    }
+    // Any site in the caller's org may be assigned (see createOrgUser + Entry 012).
     const orgSites = await listSitesByOrg(orgId);
     const orgSiteIds = new Set(orgSites.map((s) => s.id));
     if (siteIds.some((s) => !orgSiteIds.has(s))) {
