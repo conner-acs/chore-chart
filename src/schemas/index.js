@@ -183,3 +183,11 @@ export const orgSiteCreateSchema = Joi.object({
   latitude: Joi.number().allow(null),
   longitude: Joi.number().allow(null),
 });
+
+// Site-admin edit of a site (PATCH /api/v1/sites/{id}). At least one field. Only
+// name + coordinates - never nx_* secrets, site_token, or organization_id.
+export const orgSiteUpdateSchema = Joi.object({
+  name: Joi.string(),
+  latitude: Joi.number().allow(null),
+  longitude: Joi.number().allow(null),
+}).min(1);

@@ -21,7 +21,11 @@ import { listLogsBySite } from "../lib/repo/footageLog.js";
 import { NxWitnessClient } from "../services/nxWitness.js";
 import { getOrgNxCredentials } from "../lib/secrets.js";
 import { siteResponse, siteUserResponse, auditLogEntryResponse } from "../lib/presenters.js";
-import { addUserToSiteSchema, orgSiteCreateSchema } from "../schemas/index.js";
+import {
+  addUserToSiteSchema,
+  orgSiteCreateSchema,
+  orgSiteUpdateSchema,
+} from "../schemas/index.js";
 
 // Turn a display name into a SITE_TOKEN-valid slug: lowercase, a-z0-9 runs joined
 // by single hyphens, no leading/trailing hyphen, >=2 chars. Falls back to "site".
@@ -63,6 +67,23 @@ async function createOrgSite({ user: caller, body }) {
     latitude: body.latitude ?? null,
     longitude: body.longitude ?? null,
   };
+  await putSite(site);
+  return siteResponse(site);
+}
+
+// Edit a site in the caller's OWN org (site_admin). Only name + coordinates are
+// mutable here; nx_* secrets, site_token, and organization_id are never touched.
+// org boundary is enforced via the record's organization_id (no cross-org).
+async function updateOrgSite({ user: caller, params, body }) {
+  const orgId = caller.organization_id;
+  if (!orgId) throw new HttpError(400, "No organization for this account");
+  const site = await getSite(params.site_id);
+  if (!site || site.organization_id !== orgId) {
+    throw new HttpError(404, "Site not found");
+  }
+  if (body.name !== undefined) site.name = body.name;
+  if (body.latitude !== undefined) site.latitude = body.latitude;
+  if (body.longitude !== undefined) site.longitude = body.longitude;
   await putSite(site);
   return siteResponse(site);
 }
@@ -172,6 +193,11 @@ export const handler = createRouter({
     auth: "site_admin",
     schema: orgSiteCreateSchema,
     status: 201,
+  },
+  "PATCH /api/v1/sites/{site_id}": {
+    fn: updateOrgSite,
+    auth: "site_admin",
+    schema: orgSiteUpdateSchema,
   },
   "GET /api/v1/sites/{site_id}/cameras": { fn: listSiteCameras, auth: "user" },
   "GET /api/v1/sites/{site_id}/users": { fn: listSiteUsers, auth: "site_admin" },
