@@ -175,6 +175,12 @@ functions:
       - httpApi: { path: "/api/v1/sites/{site_id}/cameras", method: get }
       - httpApi: { path: "/api/v1/sites/{site_id}/audit-log", method: get }
 
+  places:
+    handler: src/handlers/places.handler
+    events:
+      - httpApi: { path: "/api/v1/places/autocomplete", method: get }
+      - httpApi: { path: "/api/v1/places/details", method: get }
+
   admin:
     handler: src/handlers/admin.handler
     events:
