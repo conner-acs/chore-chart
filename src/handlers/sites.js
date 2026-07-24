@@ -64,6 +64,7 @@ async function createOrgSite({ user: caller, body }) {
     site_token: token,
     organization_id: orgId,
     nx_tls_cert: null,
+    address: body.address ?? null,
     latitude: body.latitude ?? null,
     longitude: body.longitude ?? null,
   };
@@ -82,6 +83,7 @@ async function updateOrgSite({ user: caller, params, body }) {
     throw new HttpError(404, "Site not found");
   }
   if (body.name !== undefined) site.name = body.name;
+  if (body.address !== undefined) site.address = body.address;
   if (body.latitude !== undefined) site.latitude = body.latitude;
   if (body.longitude !== undefined) site.longitude = body.longitude;
   await putSite(site);

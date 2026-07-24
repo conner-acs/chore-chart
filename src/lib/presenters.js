@@ -60,6 +60,7 @@ export const siteResponse = (s) => ({
   name: s.name,
   site_token: s.site_token,
   organization_id: s.organization_id,
+  address: s.address ?? null,
   latitude: n(s.latitude),
   longitude: n(s.longitude),
 });

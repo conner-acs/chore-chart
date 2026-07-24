@@ -180,14 +180,16 @@ export const orgSiteCreateSchema = Joi.object({
       "string.pattern.base":
         "site_token must be at least 2 characters and contain only lowercase letters, numbers, and hyphens (no leading/trailing hyphens)",
     }),
+  address: Joi.string().allow("", null),
   latitude: Joi.number().allow(null),
   longitude: Joi.number().allow(null),
 });
 
 // Site-admin edit of a site (PATCH /api/v1/sites/{id}). At least one field. Only
-// name + coordinates - never nx_* secrets, site_token, or organization_id.
+// name + address + coordinates - never nx_* secrets, site_token, or organization_id.
 export const orgSiteUpdateSchema = Joi.object({
   name: Joi.string(),
+  address: Joi.string().allow("", null),
   latitude: Joi.number().allow(null),
   longitude: Joi.number().allow(null),
 }).min(1);
