@@ -2,7 +2,14 @@ import { createRouter } from "../lib/middleware.js";
 import { HttpError } from "../lib/response.js";
 import { newId } from "../lib/ids.js";
 import { getAccessibleSiteIds, userCanAccessSite } from "../lib/permissions.js";
-import { getSite, getSitesByIds, listSitesByOrg, listAllSites } from "../lib/repo/sites.js";
+import {
+  getSite,
+  getSiteByToken,
+  getSitesByIds,
+  listSitesByOrg,
+  listAllSites,
+  putSite,
+} from "../lib/repo/sites.js";
 import { getUser, getUserByEmail } from "../lib/repo/users.js";
 import {
   getPermission,
@@ -14,7 +21,51 @@ import { listLogsBySite } from "../lib/repo/footageLog.js";
 import { NxWitnessClient } from "../services/nxWitness.js";
 import { getOrgNxCredentials } from "../lib/secrets.js";
 import { siteResponse, siteUserResponse, auditLogEntryResponse } from "../lib/presenters.js";
-import { addUserToSiteSchema } from "../schemas/index.js";
+import { addUserToSiteSchema, orgSiteCreateSchema } from "../schemas/index.js";
+
+// Turn a display name into a SITE_TOKEN-valid slug: lowercase, a-z0-9 runs joined
+// by single hyphens, no leading/trailing hyphen, >=2 chars. Falls back to "site".
+const slugify = (name) => {
+  const s = String(name || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return s.length >= 2 ? s : "site";
+};
+
+// Create a site in the caller's OWN org (site_admin self-serve). Deliberately
+// VMS-less: no nx_host/username/password - those infra secrets are provisioned
+// by a superuser later, and every live VMS path already tolerates a missing host
+// (listSiteCameras returns [], footage resolves 422 until wired). org is
+// token-derived so cross-org is impossible. site_token is auto-derived from the
+// name (numeric suffix on collision) unless the caller supplies a valid one.
+async function createOrgSite({ user: caller, body }) {
+  const orgId = caller.organization_id;
+  if (!orgId) throw new HttpError(400, "No organization for this account");
+
+  const base = body.site_token || slugify(body.name);
+  let token = base;
+  let n = 1;
+  while (await getSiteByToken(token)) {
+    if (body.site_token) {
+      throw new HttpError(409, "A site with this token already exists");
+    }
+    n += 1;
+    token = `${base}-${n}`;
+  }
+
+  const site = {
+    id: newId(),
+    name: body.name,
+    site_token: token,
+    organization_id: orgId,
+    nx_tls_cert: null,
+    latitude: body.latitude ?? null,
+    longitude: body.longitude ?? null,
+  };
+  await putSite(site);
+  return siteResponse(site);
+}
 
 async function listSites({ user, query }) {
   const scope = query.scope || "permitted";
@@ -116,6 +167,12 @@ async function listSiteCameras({ user, params }) {
 
 export const handler = createRouter({
   "GET /api/v1/sites": { fn: listSites, auth: "user" },
+  "POST /api/v1/sites": {
+    fn: createOrgSite,
+    auth: "site_admin",
+    schema: orgSiteCreateSchema,
+    status: 201,
+  },
   "GET /api/v1/sites/{site_id}/cameras": { fn: listSiteCameras, auth: "user" },
   "GET /api/v1/sites/{site_id}/users": { fn: listSiteUsers, auth: "site_admin" },
   "POST /api/v1/sites/{site_id}/users": {

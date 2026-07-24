@@ -161,6 +161,25 @@ export const orgUserCreateSchema = Joi.object({
 // role capped to operator/site_admin (superuser impossible) and re-checked
 // against the caller's rank in the handler. site_ids REPLACES the user's set.
 export const orgUserUpdateSchema = Joi.object({
+  full_name: Joi.string(),
+  email,
   role: Joi.string().valid("operator", "site_admin"),
   site_ids: Joi.array().items(uuid),
 }).min(1);
+
+// Site-admin self-serve site creation (POST /api/v1/sites). Org comes from the
+// caller's token (never the body). VMS-less: nx_host/username/password are NOT
+// accepted here - those infra secrets are provisioned by a superuser later.
+// site_token is optional; the handler auto-derives a unique slug from the name.
+export const orgSiteCreateSchema = Joi.object({
+  name: Joi.string().required(),
+  site_token: Joi.string()
+    .min(2)
+    .pattern(SITE_TOKEN)
+    .messages({
+      "string.pattern.base":
+        "site_token must be at least 2 characters and contain only lowercase letters, numbers, and hyphens (no leading/trailing hyphens)",
+    }),
+  latitude: Joi.number().allow(null),
+  longitude: Joi.number().allow(null),
+});

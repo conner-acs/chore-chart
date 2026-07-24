@@ -575,6 +575,18 @@ async function updateOrgUser({ user: caller, params, body }) {
     target.role = body.role;
   }
 
+  if (body.full_name !== undefined) target.full_name = body.full_name;
+  // Email change: enforce uniqueness (email-index GSI isn't unique, and login
+  // resolves accounts by email). The self-match term keeps a no-op email edit
+  // idempotent instead of a false 409. Mirrors the superuser updateUser guard.
+  if (body.email !== undefined && body.email !== target.email) {
+    const clash = await getUserByEmail(body.email);
+    if (clash && clash.id !== target.id) {
+      throw new HttpError(409, "Email already registered");
+    }
+    target.email = body.email;
+  }
+
   let sites = null;
   if (body.site_ids !== undefined) {
     const siteIds = [...new Set(body.site_ids)];
