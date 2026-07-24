@@ -168,6 +168,7 @@ functions:
     handler: src/handlers/sites.handler
     events:
       - httpApi: { path: "/api/v1/sites", method: get }
+      - httpApi: { path: "/api/v1/sites", method: post }
       - httpApi: { path: "/api/v1/sites/{site_id}/users", method: get }
       - httpApi: { path: "/api/v1/sites/{site_id}/users", method: post }
       - httpApi: { path: "/api/v1/sites/{site_id}/users/{user_id}", method: delete }
