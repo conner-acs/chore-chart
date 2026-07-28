@@ -4,6 +4,7 @@ import { newId, nowIso } from "../lib/ids.js";
 import { getSecret } from "../lib/secrets.js";
 import { getSiteByToken } from "../lib/repo/sites.js";
 import { putAlert } from "../lib/repo/alerts.js";
+import { demoHlsPrefix } from "../lib/footageArchive.js";
 import { broadcastAlert } from "../services/notifications.js";
 import { alertResponse } from "../lib/presenters.js";
 import { webhookAlertSchema } from "../schemas/index.js";
@@ -37,6 +38,13 @@ export async function receiveAlert({ event, body }) {
     decided_at: null,
     decision_label: null,
     created_at: nowIso(),
+    // Footage starts HOT, wired to this alert type's seeded demo HLS clip (see
+    // demoHlsPrefix + tools/transcode-demo-footage.mjs), so the footage-token
+    // endpoint resolves it immediately after the alert is generated. The archiver
+    // moves it to cold storage (footage_state -> "archived") once the org's SLA
+    // retention window lapses.
+    footage_state: "hot",
+    footage_hls_prefix: demoHlsPrefix(body.alert_type),
   };
   await putAlert(alert);
   // Traceable log so a test/live alert is greppable in CloudWatch by id.

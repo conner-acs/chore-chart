@@ -35,6 +35,19 @@ async function mintFootageToken({ user, params }) {
     throw new HttpError(403, "Access denied");
   }
 
+  // Once footage has lapsed into cold storage it can't be served until restored
+  // from Glacier. Surface that distinctly (409) so the client shows the
+  // "archived - retrieve to view" message instead of a generic "unavailable".
+  const state = alert.footage_state || "hot";
+  if (state === "archived" || state === "restoring") {
+    throw new HttpError(
+      409,
+      state === "restoring"
+        ? "Footage is being restored from cold storage - try again shortly."
+        : "Footage has been archived to cold storage. Retrieve it to view."
+    );
+  }
+
   // Resolve the footage prefix from candidates in priority order, using the first
   // that actually has an index.m3u8 in the bucket:
   //   1. real per-alert HLS if packaged (archiver -> MediaConvert follow-up),
