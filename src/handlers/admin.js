@@ -11,6 +11,8 @@ import { NxWitnessClient, NxWitnessError } from "../services/nxWitness.js";
 import { sendSetPasswordEmail, sendTestEmail } from "../services/email.js";
 import {
   listOrganizations,
+  listOrganizationsPage,
+  countOrganizations,
   getOrganization,
   putOrganization,
   deleteOrganization,
@@ -19,7 +21,10 @@ import {
   getSite,
   getSiteByToken,
   listSitesByOrg,
+  listSitesByOrgPage,
   listAllSites,
+  listAllSitesPage,
+  countSites,
   putSite,
   deleteSite,
 } from "../lib/repo/sites.js";
@@ -27,10 +32,15 @@ import {
   getUser,
   getUserByEmail,
   listAllUsers,
+  listAllUsersPage,
   listUsersByOrg,
+  listUsersByOrgPage,
+  countUsers,
   putUser,
   deleteUser,
 } from "../lib/repo/users.js";
+import { pageLimit } from "../lib/pagination.js";
+import { applyFootagePolicy, notifyOrgSettingsChanged } from "../lib/orgNotify.js";
 import {
   putPermission,
   listSiteIdsForUser,
@@ -52,6 +62,7 @@ import {
 } from "../lib/presenters.js";
 import {
   createOrganizationSchema,
+  adminOrgUpdateSchema,
   createSiteSchema,
   createSiteInOrgSchema,
   createUserSchema,
@@ -113,12 +124,79 @@ async function buildSite(body, organizationId) {
 }
 
 // ---- organizations ------------------------------------------------------
-async function listOrgs() {
+
+// Map user records -> adminUserListItem[], resolving org names + each user's site
+// names. `orgNameFor(orgId)` returns the org's display name.
+async function usersToListItems(users, orgNameFor) {
+  const siteName = new Map((await listAllSites()).map((s) => [s.id, s.name]));
+  return Promise.all(
+    users.map(async (u) => {
+      const siteIds = await listSiteIdsForUser(u.id);
+      const userSites = siteIds
+        .map((id) => ({ id, name: siteName.get(id) }))
+        .filter((s) => s.name !== undefined)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(siteSummary);
+      return adminUserListItem(u, orgNameFor(u.organization_id), userSites);
+    })
+  );
+}
+
+// Paginated when ?limit is present ({ items, next_cursor }); else the full list
+// (used by the org-filter dropdowns that need every org).
+async function listOrgs({ query }) {
+  if (query.limit) {
+    const { items, cursor } = await listOrganizationsPage({
+      limit: pageLimit(query.limit),
+      cursor: query.cursor,
+    });
+    return { items: items.map(organizationResponse), next_cursor: cursor };
+  }
   return (await listOrganizations()).map(organizationResponse);
 }
 
 async function createOrg({ body }) {
   return organizationResponse(await putOrganization({ id: newId(), name: body.name }));
+}
+
+async function getOrg({ params }) {
+  const org = await getOrganization(params.organization_id);
+  if (!org) throw new HttpError(404, "Organization not found");
+  return organizationResponse(org);
+}
+
+// Superuser edit of ANY org: rename and/or change the footage policy. A footage
+// policy change emails the org's site_admins + records who/when (shared with the
+// site-admin /settings path via applyFootagePolicy/notifyOrgSettingsChanged).
+async function updateOrg({ user, params, body }) {
+  const org = await getOrganization(params.organization_id);
+  if (!org) throw new HttpError(404, "Organization not found");
+  if (body.name !== undefined) org.name = body.name;
+  const changes = applyFootagePolicy(org, body, user);
+  await putOrganization(org);
+  await notifyOrgSettingsChanged({ org, changes, actor: user });
+  return organizationResponse(org);
+}
+
+// One page of a specific org's users (org-detail view).
+async function listOrgUsersAdmin({ params, query }) {
+  const org = await getOrganization(params.organization_id);
+  if (!org) throw new HttpError(404, "Organization not found");
+  const { items, cursor } = await listUsersByOrgPage(params.organization_id, {
+    limit: pageLimit(query.limit),
+    cursor: query.cursor,
+  });
+  return { items: await usersToListItems(items, () => org.name), next_cursor: cursor };
+}
+
+// Network-wide totals for the super_admin dashboard KPI tiles.
+async function getStats() {
+  const [organizations, centres, users] = await Promise.all([
+    countOrganizations(),
+    countSites(),
+    countUsers(),
+  ]);
+  return { organizations, centres, users };
 }
 
 async function deleteOrg({ params }) {
@@ -148,10 +226,25 @@ async function createSiteInOrg({ params, body }) {
   return buildSite(body, params.organization_id);
 }
 
-async function listAllSitesAdmin() {
-  const [sites, orgs] = await Promise.all([listAllSites(), listOrganizations()]);
+// All sites across all orgs. ?organization_id= filters to one org; ?limit=
+// paginates ({ items, next_cursor }), else returns the full array (backward compat).
+async function listAllSitesAdmin({ query }) {
+  const orgs = await listOrganizations();
   const orgName = new Map(orgs.map((o) => [o.id, o.name]));
-  return sites.map((s) => adminSiteListItem(s, orgName.get(s.organization_id)));
+  const toItem = (s) => adminSiteListItem(s, orgName.get(s.organization_id));
+  if (query.limit) {
+    const page = query.organization_id
+      ? await listSitesByOrgPage(query.organization_id, {
+          limit: pageLimit(query.limit),
+          cursor: query.cursor,
+        })
+      : await listAllSitesPage({ limit: pageLimit(query.limit), cursor: query.cursor });
+    return { items: page.items.map(toItem), next_cursor: page.cursor };
+  }
+  const sites = query.organization_id
+    ? await listSitesByOrg(query.organization_id)
+    : await listAllSites();
+  return sites.map(toItem);
 }
 
 async function listOrgSites({ params }) {
@@ -219,26 +312,25 @@ async function deleteSiteAdmin({ params }) {
 }
 
 // ---- users --------------------------------------------------------------
-async function listUsers() {
-  const [users, orgs, sites] = await Promise.all([
-    listAllUsers(),
-    listOrganizations(),
-    listAllSites(),
-  ]);
-  const orgName = new Map(orgs.map((o) => [o.id, o.name]));
-  const siteName = new Map(sites.map((s) => [s.id, s.name]));
-
-  return Promise.all(
-    users.map(async (u) => {
-      const siteIds = await listSiteIdsForUser(u.id);
-      const userSites = siteIds
-        .map((id) => ({ id, name: siteName.get(id) }))
-        .filter((s) => s.name !== undefined)
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map(siteSummary);
-      return adminUserListItem(u, orgName.get(u.organization_id), userSites);
-    })
-  );
+// All users across all orgs. ?organization_id= filters to one org; ?limit=
+// paginates ({ items, next_cursor }), else returns the full array (backward compat
+// - findUserByEmail relies on the array shape).
+async function listUsers({ query }) {
+  const orgs = await listOrganizations();
+  const nameFor = ((m) => (id) => m.get(id))(new Map(orgs.map((o) => [o.id, o.name])));
+  if (query.limit) {
+    const page = query.organization_id
+      ? await listUsersByOrgPage(query.organization_id, {
+          limit: pageLimit(query.limit),
+          cursor: query.cursor,
+        })
+      : await listAllUsersPage({ limit: pageLimit(query.limit), cursor: query.cursor });
+    return { items: await usersToListItems(page.items, nameFor), next_cursor: page.cursor };
+  }
+  const users = query.organization_id
+    ? await listUsersByOrg(query.organization_id)
+    : await listAllUsers();
+  return usersToListItems(users, nameFor);
 }
 
 async function createUser({ body }) {
@@ -635,12 +727,19 @@ export const handler = createRouter({
     auth: "site_admin",
     schema: orgUserUpdateSchema,
   },
+  "GET /api/v1/admin/stats": { fn: getStats, auth: "superuser" },
   "GET /api/v1/admin/organizations": { fn: listOrgs, auth: "superuser" },
   "POST /api/v1/admin/organizations": {
     fn: createOrg,
     auth: "superuser",
     schema: createOrganizationSchema,
     status: 201,
+  },
+  "GET /api/v1/admin/organizations/{organization_id}": { fn: getOrg, auth: "superuser" },
+  "PATCH /api/v1/admin/organizations/{organization_id}": {
+    fn: updateOrg,
+    auth: "superuser",
+    schema: adminOrgUpdateSchema,
   },
   "DELETE /api/v1/admin/organizations/{organization_id}": {
     fn: deleteOrg,
@@ -649,6 +748,10 @@ export const handler = createRouter({
   },
   "GET /api/v1/admin/organizations/{organization_id}/sites": {
     fn: listOrgSites,
+    auth: "superuser",
+  },
+  "GET /api/v1/admin/organizations/{organization_id}/users": {
+    fn: listOrgUsersAdmin,
     auth: "superuser",
   },
   "POST /api/v1/admin/organizations/{organization_id}/sites": {

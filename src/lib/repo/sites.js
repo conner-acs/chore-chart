@@ -6,6 +6,7 @@ import {
   DeleteCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ddb, TABLES } from "../dynamo.js";
+import { encodeCursor, decodeCursor, countAll } from "../pagination.js";
 
 const T = TABLES.sites;
 
@@ -43,6 +44,40 @@ export const listAllSites = async () => {
   const { Items = [] } = await ddb.send(new ScanCommand({ TableName: T }));
   return Items.sort((a, b) => a.name.localeCompare(b.name));
 };
+
+// One page of ALL sites (Scan) - { items, cursor }.
+export const listAllSitesPage = async ({ limit = 25, cursor } = {}) => {
+  const { Items = [], LastEvaluatedKey } = await ddb.send(
+    new ScanCommand({ TableName: T, Limit: limit, ExclusiveStartKey: decodeCursor(cursor) })
+  );
+  return {
+    items: Items.sort((a, b) => (a.name || "").localeCompare(b.name || "")),
+    cursor: encodeCursor(LastEvaluatedKey),
+  };
+};
+
+// One page of a single org's sites (organization_id-index Query) - { items, cursor }.
+export const listSitesByOrgPage = async (organizationId, { limit = 25, cursor } = {}) => {
+  const { Items = [], LastEvaluatedKey } = await ddb.send(
+    new QueryCommand({
+      TableName: T,
+      IndexName: "organization_id-index",
+      KeyConditionExpression: "organization_id = :org",
+      ExpressionAttributeValues: { ":org": organizationId },
+      Limit: limit,
+      ExclusiveStartKey: decodeCursor(cursor),
+    })
+  );
+  return {
+    items: Items.sort((a, b) => (a.name || "").localeCompare(b.name || "")),
+    cursor: encodeCursor(LastEvaluatedKey),
+  };
+};
+
+export const countSites = () =>
+  countAll((ExclusiveStartKey) =>
+    ddb.send(new ScanCommand({ TableName: T, Select: "COUNT", ExclusiveStartKey }))
+  );
 
 export const getSitesByIds = async (ids) => {
   const sites = await Promise.all(ids.map((id) => getSite(id)));

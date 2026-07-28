@@ -188,11 +188,15 @@ functions:
       - httpApi: { path: "/api/v1/users", method: get }
       - httpApi: { path: "/api/v1/users", method: post }
       - httpApi: { path: "/api/v1/users/{user_id}", method: patch }
+      - httpApi: { path: "/api/v1/admin/stats", method: get }
       - httpApi: { path: "/api/v1/admin/organizations", method: get }
       - httpApi: { path: "/api/v1/admin/organizations", method: post }
+      - httpApi: { path: "/api/v1/admin/organizations/{organization_id}", method: get }
+      - httpApi: { path: "/api/v1/admin/organizations/{organization_id}", method: patch }
       - httpApi: { path: "/api/v1/admin/organizations/{organization_id}", method: delete }
       - httpApi: { path: "/api/v1/admin/organizations/{organization_id}/sites", method: get }
       - httpApi: { path: "/api/v1/admin/organizations/{organization_id}/sites", method: post }
+      - httpApi: { path: "/api/v1/admin/organizations/{organization_id}/users", method: get }
       - httpApi: { path: "/api/v1/admin/sites", method: post }
       - httpApi: { path: "/api/v1/admin/sites", method: get }
       - httpApi: { path: "/api/v1/admin/sites/{site_id}/test-connection", method: post }

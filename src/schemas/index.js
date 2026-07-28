@@ -139,6 +139,14 @@ export const orgSettingsSchema = Joi.object({
   require_restore_approval: Joi.boolean(),
 }).min(1);
 
+// Superuser edit of ANY organisation (PATCH /admin/organizations/{id}): rename
+// and/or change the footage policy. At least one field.
+export const adminOrgUpdateSchema = Joi.object({
+  name: Joi.string(),
+  footage_sla_days: Joi.number().integer().min(1).max(14),
+  require_restore_approval: Joi.boolean(),
+}).min(1);
+
 // Optional free-text note on a retrieve request or an approve/deny decision.
 // All-optional so an empty POST body ({}) validates.
 export const optionalNoteSchema = Joi.object({
