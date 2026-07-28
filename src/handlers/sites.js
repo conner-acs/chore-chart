@@ -81,14 +81,17 @@ async function createOrgSite({ user: caller, body }) {
   return siteResponse(site);
 }
 
-// Edit a site in the caller's OWN org (site_admin). Only name + coordinates are
-// mutable here; nx_* secrets, site_token, and organization_id are never touched.
-// org boundary is enforced via the record's organization_id (no cross-org).
+// Edit a site's name/address/coordinates. A site_admin may only touch a site in
+// their OWN org (boundary enforced via the record's organization_id); a superuser
+// may edit ANY org's site (platform CRM), mirroring createOrgSite. nx_* secrets,
+// site_token, and organization_id are never mutated here for either role.
 async function updateOrgSite({ user: caller, params, body }) {
-  const orgId = caller.organization_id;
-  if (!orgId) throw new HttpError(400, "No organization for this account");
+  const isSuper = caller.role === "superuser";
+  if (!isSuper && !caller.organization_id) {
+    throw new HttpError(400, "No organization for this account");
+  }
   const site = await getSite(params.site_id);
-  if (!site || site.organization_id !== orgId) {
+  if (!site || (!isSuper && site.organization_id !== caller.organization_id)) {
     throw new HttpError(404, "Site not found");
   }
   if (body.name !== undefined) site.name = body.name;

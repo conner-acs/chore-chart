@@ -647,10 +647,14 @@ async function createOrgUser({ user: caller, body }) {
 // capped to the caller's rank; site_ids may be any sites IN the caller's org
 // (Entry 012) and REPLACE the user's current permission set.
 async function updateOrgUser({ user: caller, params, body }) {
-  const orgId = caller.organization_id;
-  if (!orgId) throw new HttpError(400, "No organization for this account");
+  const isSuper = caller.role === "superuser";
   const target = await getUser(params.user_id);
-  if (!target || target.organization_id !== orgId) {
+  if (!target) throw new HttpError(404, "User not found");
+  // A site_admin is scoped to their own org; a superuser may edit a user in ANY
+  // org (platform CRM), and site_ids are validated against the TARGET's org below.
+  const orgId = isSuper ? target.organization_id : caller.organization_id;
+  if (!orgId) throw new HttpError(400, "No organization for this account");
+  if (!isSuper && target.organization_id !== orgId) {
     throw new HttpError(404, "User not found");
   }
   if (target.id === caller.id) {
