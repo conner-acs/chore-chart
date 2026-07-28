@@ -279,6 +279,41 @@ async function submitDecision({ user, params, body }) {
   return alertResponse(alert);
 }
 
+// Reopen a resolved alert back into review. Admins only (enforced by the route's
+// site_admin auth - operators can't reopen). Reverts incident|discarded ->
+// submitted_for_review: the prior decision stays on as the standing proposal label
+// (so the sign-off screen shows what it had been resolved as), but the proposer
+// identity is dropped so ANY admin - including the one reopening - can re-decide
+// without tripping the proposer-cannot-resolve guard. All resolution fields clear.
+async function reopenAlert({ user, params }) {
+  const alert = await getAlert(params.alert_id);
+  if (!alert) throw new HttpError(404, "Alert not found");
+  if (!(await userCanAccessSite(user, alert.site_id))) {
+    throw new HttpError(403, "Access denied");
+  }
+  if (alert.status !== "incident" && alert.status !== "discarded") {
+    throw new HttpError(409, "Only a resolved alert can be reopened");
+  }
+  const now = nowIso();
+  const priorLabel = alert.decision_label || alert.review_label || null;
+  alert.status = "submitted_for_review";
+  alert.proposer_id = null;
+  alert.proposer_label = priorLabel;
+  alert.proposed_at = now;
+  alert.conflicted = false;
+  alert.decided_by = null;
+  alert.decided_at = now;
+  alert.decision_label = priorLabel; // mirror for back-compat
+  alert.resolved_by = null;
+  alert.review_by = null;
+  alert.review_label = null;
+  alert.review_note = null;
+  alert.resolved_at = null;
+  await putAlert(alert);
+  await logAction(alert, user, "reopened", now);
+  return alertResponse(alert);
+}
+
 // ---- Footage SLA: retrieve (refresh the clock) + restore-request approval ----
 
 function buildRestoreRequest(alert, user, note, now) {
@@ -476,6 +511,10 @@ export const handler = createRouter({
     fn: submitDecision,
     auth: "user",
     schema: alertDecisionSchema,
+  },
+  "POST /api/v1/alerts/{alert_id}/reopen": {
+    fn: reopenAlert,
+    auth: "site_admin", // admins only; operators can't reopen a resolved alert
   },
   "POST /api/v1/alerts/{alert_id}/retrieve": {
     fn: retrieveFootage,
