@@ -181,6 +181,8 @@ export const orgUserUpdateSchema = Joi.object({
 // site_token is optional; the handler auto-derives a unique slug from the name.
 export const orgSiteCreateSchema = Joi.object({
   name: Joi.string().required(),
+  // Superuser-only: target org. A site_admin's org comes from their token (ignored).
+  organization_id: uuid,
   site_token: Joi.string()
     .min(2)
     .pattern(SITE_TOKEN)

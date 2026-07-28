@@ -11,6 +11,7 @@ import {
   putSite,
 } from "../lib/repo/sites.js";
 import { getUser, getUserByEmail } from "../lib/repo/users.js";
+import { getOrganization } from "../lib/repo/organizations.js";
 import {
   getPermission,
   putPermission,
@@ -44,7 +45,15 @@ const slugify = (name) => {
 // token-derived so cross-org is impossible. site_token is auto-derived from the
 // name (numeric suffix on collision) unless the caller supplies a valid one.
 async function createOrgSite({ user: caller, body }) {
-  const orgId = caller.organization_id;
+  // A superuser may create a centre in ANY org (org id supplied in the body). A
+  // site_admin always creates in their own token-derived org (body org id ignored).
+  let orgId = caller.organization_id;
+  if (caller.role === "superuser" && body.organization_id) {
+    if (!(await getOrganization(body.organization_id))) {
+      throw new HttpError(404, "Organization not found");
+    }
+    orgId = body.organization_id;
+  }
   if (!orgId) throw new HttpError(400, "No organization for this account");
 
   const base = body.site_token || slugify(body.name);
