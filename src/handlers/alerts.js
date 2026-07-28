@@ -149,10 +149,12 @@ export function applyDecision(alert, user, body, now) {
   }
 
   // Apply a terminal resolution from `label`; decided_by (proposer) is preserved.
+  const actorName = user.full_name || user.email || null;
   const resolveWithLabel = () => {
     alert.status = LABEL_TO_STATUS[label]; // incident | discarded
     alert.resolved_by = user.id;
     alert.review_by = user.id;
+    alert.review_by_name = actorName; // denormalised so the UI shows the resolver
     alert.review_label = label;
     alert.review_note = note;
     alert.resolved_at = now;
@@ -163,10 +165,12 @@ export function applyDecision(alert, user, body, now) {
   // ---- unprocessed ----
   if (alert.status === "unprocessed") {
     if (isEscalate) {
-      // T1 — PROPOSE / escalate, recording the proposed label.
+      // T1 — PROPOSE / escalate, recording the proposed label + the proposer's note.
       alert.status = "submitted_for_review";
       alert.proposer_id = user.id;
       alert.proposer_label = label;
+      alert.proposer_name = actorName; // denormalised so the UI shows the escalator
+      alert.proposer_note = note; // the escalating operator's note (was never stored)
       alert.proposed_at = now;
       alert.conflicted = false;
       alert.decided_by = user.id; // decided_by stays the proposer
@@ -174,6 +178,7 @@ export function applyDecision(alert, user, body, now) {
       alert.decision_label = label; // mirror for back-compat
       alert.resolved_by = null;
       alert.review_by = null;
+      alert.review_by_name = null;
       alert.review_label = null;
       alert.review_note = null;
       alert.resolved_at = null;
@@ -213,8 +218,12 @@ export function applyDecision(alert, user, body, now) {
     if (label === alert.proposer_label) {
       return resolveWithLabel(); // T2 — 2 operators agree on the label
     }
-    // T3 — disagreement: flag conflicted, stays in review for an admin.
+    // T3 — disagreement: flag conflicted, stays in review for an admin. Record
+    // who disagreed + the label they proposed so the conflict is attributed.
     alert.conflicted = true;
+    alert.review_by = user.id;
+    alert.review_by_name = actorName;
+    alert.review_label = label;
     alert.review_note = note; // capture the dissent reason for the admin
     return "conflicted";
   }
@@ -299,6 +308,8 @@ async function reopenAlert({ user, params }) {
   alert.status = "submitted_for_review";
   alert.proposer_id = null;
   alert.proposer_label = priorLabel;
+  alert.proposer_name = null;
+  alert.proposer_note = null;
   alert.proposed_at = now;
   alert.conflicted = false;
   alert.decided_by = null;
@@ -306,6 +317,7 @@ async function reopenAlert({ user, params }) {
   alert.decision_label = priorLabel; // mirror for back-compat
   alert.resolved_by = null;
   alert.review_by = null;
+  alert.review_by_name = null;
   alert.review_label = null;
   alert.review_note = null;
   alert.resolved_at = null;
