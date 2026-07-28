@@ -10,6 +10,7 @@ import {
   hlsExists,
   buildSignedManifest,
   FOOTAGE_TOKEN_TTL_SEC,
+  DEFAULT_DEMO_ALERT_TYPE,
 } from "../lib/footageArchive.js";
 
 // Mint a short-lived footage token for an alert: re-run the SAME per-alert
@@ -34,15 +35,25 @@ async function mintFootageToken({ user, params }) {
     throw new HttpError(403, "Access denied");
   }
 
-  // Pick the footage prefix: real per-alert HLS if packaged, else the demo clip
-  // for this alert's type. (Real per-alert HLS packaging lands with the archiver
-  // -> MediaConvert follow-up; today the demo prefix is what's populated.)
-  let prefix = alert.footage_hls_prefix || null;
-  if (!prefix) {
-    const demo = demoHlsPrefix(alert.alert_type);
-    if (await hlsExists(demo)) prefix = demo;
+  // Resolve the footage prefix from candidates in priority order, using the first
+  // that actually has an index.m3u8 in the bucket:
+  //   1. real per-alert HLS if packaged (archiver -> MediaConvert follow-up),
+  //   2. the demo clip for this alert's type,
+  //   3. a default demo clip - so alert types without their own clip
+  //      (possibly_staff / incident / ...) still show footage in the demo.
+  const candidates = [
+    alert.footage_hls_prefix,
+    demoHlsPrefix(alert.alert_type),
+    demoHlsPrefix(DEFAULT_DEMO_ALERT_TYPE),
+  ].filter(Boolean);
+  let prefix = null;
+  for (const candidate of candidates) {
+    if (await hlsExists(candidate)) {
+      prefix = candidate;
+      break;
+    }
   }
-  if (!prefix || !(await hlsExists(prefix))) {
+  if (!prefix) {
     throw new HttpError(404, "No footage available for this alert");
   }
 
