@@ -6,6 +6,7 @@ import {
   DeleteCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ddb, TABLES } from "../dynamo.js";
+import { encodeCursor, decodeCursor, countAll } from "../pagination.js";
 
 const T = TABLES.organizations;
 
@@ -31,6 +32,24 @@ export const listOrganizations = async () => {
   const { Items = [] } = await ddb.send(new ScanCommand({ TableName: T }));
   return Items.sort((a, b) => a.name.localeCompare(b.name));
 };
+
+// One page of organizations (Scan). Returns { items, cursor } - cursor is null on
+// the last page. Items within a page are name-sorted (a global sort isn't possible
+// across scan pages).
+export const listOrganizationsPage = async ({ limit = 25, cursor } = {}) => {
+  const { Items = [], LastEvaluatedKey } = await ddb.send(
+    new ScanCommand({ TableName: T, Limit: limit, ExclusiveStartKey: decodeCursor(cursor) })
+  );
+  return {
+    items: Items.sort((a, b) => a.name.localeCompare(b.name)),
+    cursor: encodeCursor(LastEvaluatedKey),
+  };
+};
+
+export const countOrganizations = () =>
+  countAll((ExclusiveStartKey) =>
+    ddb.send(new ScanCommand({ TableName: T, Select: "COUNT", ExclusiveStartKey }))
+  );
 
 export const putOrganization = async (org) => {
   await ddb.send(new PutCommand({ TableName: T, Item: org }));

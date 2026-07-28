@@ -20,6 +20,7 @@ const ENV_FALLBACKS = {
   WEBHOOK_SECRET: "webhookSecret",
   MAILTRAP_API_TOKEN: "mailtrapApiToken",
   TEST_EMAIL_TO: "testEmailTo",
+  GOOGLE_MAPS_API_KEY: "googleMapsApiKey",
 };
 
 async function load() {

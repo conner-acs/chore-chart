@@ -139,6 +139,14 @@ export const orgSettingsSchema = Joi.object({
   require_restore_approval: Joi.boolean(),
 }).min(1);
 
+// Superuser edit of ANY organisation (PATCH /admin/organizations/{id}): rename
+// and/or change the footage policy. At least one field.
+export const adminOrgUpdateSchema = Joi.object({
+  name: Joi.string(),
+  footage_sla_days: Joi.number().integer().min(1).max(14),
+  require_restore_approval: Joi.boolean(),
+}).min(1);
+
 // Optional free-text note on a retrieve request or an approve/deny decision.
 // All-optional so an empty POST body ({}) validates.
 export const optionalNoteSchema = Joi.object({
@@ -161,6 +169,37 @@ export const orgUserCreateSchema = Joi.object({
 // role capped to operator/site_admin (superuser impossible) and re-checked
 // against the caller's rank in the handler. site_ids REPLACES the user's set.
 export const orgUserUpdateSchema = Joi.object({
+  full_name: Joi.string(),
+  email,
   role: Joi.string().valid("operator", "site_admin"),
   site_ids: Joi.array().items(uuid),
+}).min(1);
+
+// Site-admin self-serve site creation (POST /api/v1/sites). Org comes from the
+// caller's token (never the body). VMS-less: nx_host/username/password are NOT
+// accepted here - those infra secrets are provisioned by a superuser later.
+// site_token is optional; the handler auto-derives a unique slug from the name.
+export const orgSiteCreateSchema = Joi.object({
+  name: Joi.string().required(),
+  // Superuser-only: target org. A site_admin's org comes from their token (ignored).
+  organization_id: uuid,
+  site_token: Joi.string()
+    .min(2)
+    .pattern(SITE_TOKEN)
+    .messages({
+      "string.pattern.base":
+        "site_token must be at least 2 characters and contain only lowercase letters, numbers, and hyphens (no leading/trailing hyphens)",
+    }),
+  address: Joi.string().allow("", null),
+  latitude: Joi.number().allow(null),
+  longitude: Joi.number().allow(null),
+});
+
+// Site-admin edit of a site (PATCH /api/v1/sites/{id}). At least one field. Only
+// name + address + coordinates - never nx_* secrets, site_token, or organization_id.
+export const orgSiteUpdateSchema = Joi.object({
+  name: Joi.string(),
+  address: Joi.string().allow("", null),
+  latitude: Joi.number().allow(null),
+  longitude: Joi.number().allow(null),
 }).min(1);

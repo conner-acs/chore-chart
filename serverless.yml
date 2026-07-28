@@ -174,11 +174,19 @@ functions:
     handler: src/handlers/sites.handler
     events:
       - httpApi: { path: "/api/v1/sites", method: get }
+      - httpApi: { path: "/api/v1/sites", method: post }
+      - httpApi: { path: "/api/v1/sites/{site_id}", method: patch }
       - httpApi: { path: "/api/v1/sites/{site_id}/users", method: get }
       - httpApi: { path: "/api/v1/sites/{site_id}/users", method: post }
       - httpApi: { path: "/api/v1/sites/{site_id}/users/{user_id}", method: delete }
       - httpApi: { path: "/api/v1/sites/{site_id}/cameras", method: get }
       - httpApi: { path: "/api/v1/sites/{site_id}/audit-log", method: get }
+
+  places:
+    handler: src/handlers/places.handler
+    events:
+      - httpApi: { path: "/api/v1/places/autocomplete", method: get }
+      - httpApi: { path: "/api/v1/places/details", method: get }
 
   admin:
     handler: src/handlers/admin.handler
@@ -186,11 +194,15 @@ functions:
       - httpApi: { path: "/api/v1/users", method: get }
       - httpApi: { path: "/api/v1/users", method: post }
       - httpApi: { path: "/api/v1/users/{user_id}", method: patch }
+      - httpApi: { path: "/api/v1/admin/stats", method: get }
       - httpApi: { path: "/api/v1/admin/organizations", method: get }
       - httpApi: { path: "/api/v1/admin/organizations", method: post }
+      - httpApi: { path: "/api/v1/admin/organizations/{organization_id}", method: get }
+      - httpApi: { path: "/api/v1/admin/organizations/{organization_id}", method: patch }
       - httpApi: { path: "/api/v1/admin/organizations/{organization_id}", method: delete }
       - httpApi: { path: "/api/v1/admin/organizations/{organization_id}/sites", method: get }
       - httpApi: { path: "/api/v1/admin/organizations/{organization_id}/sites", method: post }
+      - httpApi: { path: "/api/v1/admin/organizations/{organization_id}/users", method: get }
       - httpApi: { path: "/api/v1/admin/sites", method: post }
       - httpApi: { path: "/api/v1/admin/sites", method: get }
       - httpApi: { path: "/api/v1/admin/sites/{site_id}/test-connection", method: post }

@@ -248,6 +248,23 @@ export async function sendAlertReviewEmail({
   return sendEmail({ toEmail, subject, text, html, category: "alert-review" });
 }
 
+// Notify a site_admin that their organisation's footage policy changed (SLA days
+// and/or restore-approval), including exactly what changed and who changed it.
+export async function sendSettingsChangedEmail({ toEmail, fullName, orgName, changes, actorName }) {
+  const firstName = (fullName || "there").split(" ")[0];
+  const subject = `Footage policy updated - ${orgName}`;
+  const lead = `${actorName || "An administrator"} updated the footage policy for ${orgName}.`;
+  const text =
+    `Hi ${firstName},\n\n${lead}\n\n` +
+    changes.map((c) => `- ${c}`).join("\n") +
+    `\n\n- SafeDay`;
+  const html =
+    `<p>Hi ${escHtml(firstName)},</p><p>${escHtml(lead)}</p><ul>` +
+    changes.map((c) => `<li>${escHtml(c)}</li>`).join("") +
+    `</ul><p>- SafeDay</p>`;
+  return sendEmail({ toEmail, subject, text, html, category: "settings-change" });
+}
+
 // Send a diagnostic email to the address stored in the `testEmailTo` secret.
 // Used by the /admin/test-email endpoint (and ./test.sh) to verify the email
 // pipeline end to end. Returns the delivery detail (never throws).

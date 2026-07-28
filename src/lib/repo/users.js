@@ -6,6 +6,7 @@ import {
   DeleteCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ddb, TABLES } from "../dynamo.js";
+import { encodeCursor, decodeCursor, countAll } from "../pagination.js";
 
 const T = TABLES.users;
 
@@ -42,6 +43,40 @@ export const listAllUsers = async () => {
   const { Items = [] } = await ddb.send(new ScanCommand({ TableName: T }));
   return Items.sort((a, b) => a.full_name.localeCompare(b.full_name));
 };
+
+// One page of ALL users (Scan) - { items, cursor }.
+export const listAllUsersPage = async ({ limit = 25, cursor } = {}) => {
+  const { Items = [], LastEvaluatedKey } = await ddb.send(
+    new ScanCommand({ TableName: T, Limit: limit, ExclusiveStartKey: decodeCursor(cursor) })
+  );
+  return {
+    items: Items.sort((a, b) => (a.full_name || "").localeCompare(b.full_name || "")),
+    cursor: encodeCursor(LastEvaluatedKey),
+  };
+};
+
+// One page of users in a single org (organization_id-index Query) - { items, cursor }.
+export const listUsersByOrgPage = async (organizationId, { limit = 25, cursor } = {}) => {
+  const { Items = [], LastEvaluatedKey } = await ddb.send(
+    new QueryCommand({
+      TableName: T,
+      IndexName: "organization_id-index",
+      KeyConditionExpression: "organization_id = :org",
+      ExpressionAttributeValues: { ":org": organizationId },
+      Limit: limit,
+      ExclusiveStartKey: decodeCursor(cursor),
+    })
+  );
+  return {
+    items: Items.sort((a, b) => (a.full_name || "").localeCompare(b.full_name || "")),
+    cursor: encodeCursor(LastEvaluatedKey),
+  };
+};
+
+export const countUsers = () =>
+  countAll((ExclusiveStartKey) =>
+    ddb.send(new ScanCommand({ TableName: T, Select: "COUNT", ExclusiveStartKey }))
+  );
 
 // Superusers — used to fan out new-alert notifications (implicit all-site access).
 export const listSuperusers = async () => {
