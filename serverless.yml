@@ -404,6 +404,29 @@ resources:
                 SSEAlgorithm: aws:kms
         VersioningConfiguration:
           Status: Enabled
+        # hls.js fetches the presigned HLS segments cross-origin from the portal,
+        # so the bucket must return CORS headers or the browser drops the 200.
+        # Access stays gated by the short-lived presigned URLs (bucket is private);
+        # CORS only lists which browser origins may READ the response - scoped to
+        # the portal origins, never "*".
+        CorsConfiguration:
+          CorsRules:
+            - AllowedOrigins:
+                - http://localhost:8080
+                - http://localhost:3000
+                - https://demo.safeday.com.au
+                - https://safeday.com.au
+              AllowedMethods:
+                - GET
+                - HEAD
+              AllowedHeaders:
+                - "*"
+              ExposedHeaders:
+                - Content-Length
+                - Content-Range
+                - ETag
+                - Accept-Ranges
+              MaxAge: 3000
 
     DeviceTokensTable:
       Type: AWS::DynamoDB::Table
