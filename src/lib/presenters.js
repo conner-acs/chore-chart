@@ -35,9 +35,12 @@ export const alertResponse = (a, sla = {}) => ({
   // Review-workflow contract (matches the frontend's mapLiveAlert).
   proposer_id: n(a.proposer_id),
   proposer_label: n(a.proposer_label),
+  proposer_name: n(a.proposer_name),
+  proposer_note: n(a.proposer_note),
   proposed_at: n(a.proposed_at),
   conflicted: a.conflicted ?? false,
   review_by: n(a.review_by ?? a.resolved_by),
+  review_by_name: n(a.review_by_name),
   review_label: n(a.review_label),
   review_note: n(a.review_note),
   resolved_by: n(a.resolved_by),
