@@ -23,6 +23,18 @@ const cfg = {
 // Production iff the environment name contains "prod" (prod, production, prod-au…).
 const isProdEnv = () => cfg.environment.toLowerCase().includes("prod");
 
+// In production, links inside emails must point at the live site — never send a
+// localhost/127.0.0.1 URL to a real user. If PUBLIC_BASE_URL is unset or points
+// at localhost while in prod, force the production site. Non-prod keeps whatever
+// PUBLIC_BASE_URL / localhost it's configured with.
+const PROD_BASE_URL = "https://safeday.com.au";
+if (
+  isProdEnv() &&
+  (!process.env.PUBLIC_BASE_URL || /localhost|127\.0\.0\.1/i.test(process.env.PUBLIC_BASE_URL))
+) {
+  cfg.publicBaseUrl = PROD_BASE_URL;
+}
+
 const isDev = () =>
   ["development", "dev", "local", "test"].includes(cfg.environment.toLowerCase());
 
@@ -99,12 +111,32 @@ async function deliverViaMailtrap({ toEmail, subject, text, html, category }) {
 // Returns rich detail; never throws.
 export async function deliver(msg) {
   const prod = isProdEnv();
-  const provider = prod ? "sendgrid" : "mailtrap";
-  const result = prod ? await deliverViaSendgrid(msg) : await deliverViaMailtrap(msg);
+  let provider = prod ? "sendgrid" : "mailtrap";
+  let result = prod ? await deliverViaSendgrid(msg) : await deliverViaMailtrap(msg);
 
-  const from = prod ? cfg.fromEmail : cfg.mailtrapSenderEmail;
+  // SendGrid → Mailtrap fallback (prod only): SendGrid accepts a send with 2xx
+  // (a successful send is 202 Accepted); anything else — 4xx/5xx or a network
+  // error — is treated as a failure and we fall back to Mailtrap so mail still
+  // goes out / is captured.
+  if (prod && !result.sent) {
+    console.warn(
+      `email via sendgrid failed (${result.error}); falling back to mailtrap: ${msg.subject}`
+    );
+    const fallback = await deliverViaMailtrap(msg);
+    if (fallback.sent) {
+      result = { ...fallback, fellBackFrom: "sendgrid", sendgridError: result.error };
+      provider = "mailtrap";
+    } else {
+      // Both failed — surface both errors so the cause is diagnosable.
+      result = { sent: false, error: `sendgrid: ${result.error}; mailtrap: ${fallback.error}` };
+      provider = "sendgrid+mailtrap";
+    }
+  }
+
+  const from = provider === "mailtrap" ? cfg.mailtrapSenderEmail : cfg.fromEmail;
   if (result.sent) {
-    console.info(`email sent via ${provider} to ${msg.toEmail}: ${msg.subject}`);
+    const via = result.fellBackFrom ? `${provider} (fallback from ${result.fellBackFrom})` : provider;
+    console.info(`email sent via ${via} to ${msg.toEmail}: ${msg.subject}`);
   } else {
     console.warn(`email not sent via ${provider} (${result.error}): ${msg.subject}`);
   }
