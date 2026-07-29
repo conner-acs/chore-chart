@@ -101,6 +101,8 @@ export const organizationResponse = (o) => ({
 export const restoreRequestResponse = (r) => ({
   id: r.id,
   alert_id: r.alert_id,
+  // "retrieve" (restore from Glacier) | "archive" (move to Glacier).
+  type: r.type ?? "retrieve",
   site_id: r.site_id,
   organization_id: r.organization_id,
   camera_id: r.camera_id,

@@ -154,6 +154,7 @@ functions:
       - httpApi: { path: "/api/v1/alerts/{alert_id}/decision", method: post }
       - httpApi: { path: "/api/v1/alerts/{alert_id}/reopen", method: post }
       - httpApi: { path: "/api/v1/alerts/{alert_id}/retrieve", method: post }
+      - httpApi: { path: "/api/v1/alerts/{alert_id}/archive", method: post }
       - httpApi: { path: "/api/v1/restore-requests", method: get }
       - httpApi: { path: "/api/v1/restore-requests/{request_id}/approve", method: post }
       - httpApi: { path: "/api/v1/restore-requests/{request_id}/deny", method: post }
