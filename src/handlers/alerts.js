@@ -321,11 +321,12 @@ async function submitDecision({ user, params, body }) {
   await putAlert(alert);
   await logAction(alert, user, action, now);
 
-  // A genuine incident with a non-normal urgency raises an admin-attention request
-  // (critical -> pinned notification + dashboard banner; management -> normal
-  // Requests-tab item). Deduped to one pending request per alert so the two-person
-  // flow (escalate then confirm) doesn't double-raise it.
-  if (severity === "critical" || severity === "management") {
+  // A genuine ESCALATION with a non-normal urgency raises an admin-attention
+  // request (critical -> pinned notification + dashboard banner; management ->
+  // normal Requests-tab item). Only on escalation: a directly-resolved alert has
+  // already been actioned, so it never needs a request. Deduped to one pending
+  // request per alert so the two-person flow doesn't double-raise it.
+  if ((severity === "critical" || severity === "management") && action === "submitted_for_review") {
     try {
       const existing = (await listRestoreRequestsByOrg(orgId)).find(
         (r) =>
@@ -337,6 +338,26 @@ async function submitDecision({ user, params, body }) {
       }
     } catch (err) {
       console.warn("[alerts] attention request failed:", err.message);
+    }
+  }
+
+  // Actioning (resolving) an alert clears any pending attention-request for it - a
+  // resolved alert shouldn't linger in the Requests queue (a site admin who actions
+  // an alert shouldn't still see a request for it).
+  if (alert.status === "incident" || alert.status === "discarded") {
+    try {
+      const pending = (await listRestoreRequestsByOrg(orgId)).filter(
+        (r) => r.alert_id === alert.id && r.type === "management_review" && r.status === "pending"
+      );
+      for (const r of pending) {
+        r.status = "actioned";
+        r.reviewed_by = user.id;
+        r.reviewed_by_label = user.full_name || user.email;
+        r.reviewed_at = now;
+        await putRestoreRequest(r);
+      }
+    } catch (err) {
+      console.warn("[alerts] clearing attention request failed:", err.message);
     }
   }
 
