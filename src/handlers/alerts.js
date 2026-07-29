@@ -387,6 +387,13 @@ async function reopenAlert({ user, params }) {
   alert.review_label = null;
   alert.review_note = null;
   alert.resolved_at = null;
+  // Clear the structured resolution report too, so a reopened alert doesn't carry
+  // stale genuine/critical metadata into a different re-resolution.
+  alert.resolution_category = null;
+  alert.resolution_urgency = null;
+  alert.resolution_urgency_severity = null;
+  alert.resolution_notified = null;
+  alert.resolution_staff = null;
   await putAlert(alert);
   await logAction(alert, user, "reopened", now);
   return alertResponse(alert);
