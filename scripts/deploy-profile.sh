@@ -59,6 +59,7 @@ SECRET_KEY="${SECRET_KEY:-$(openssl rand -hex 32)}"
 WEBHOOK_SECRET="${WEBHOOK_SECRET:-$(openssl rand -hex 32)}"
 NX_KEY="${NX_CREDENTIAL_ENCRYPTION_KEY:-}"
 MAILTRAP="${MAILTRAP_API_TOKEN:-}"
+SENDGRID="${SENDGRID_PROD_API_TOKEN:-}"  # prod email sender (SendGrid); see src/services/email.js
 
 [ -n "$NX_KEY" ] || echo "  ⚠ NX_CREDENTIAL_ENCRYPTION_KEY is empty — Nx test-connection/cameras/footage will 502. Set it in .env.secrets if migrating encrypted Nx passwords." >&2
 
@@ -80,33 +81,42 @@ note "Deploying stack 'safeday-$STAGE' to profile '$PROFILE'…"
 npx serverless deploy --aws-profile "$PROFILE" --stage "$STAGE" --region "$REGION"
 
 # ---- 3. populate the secret --------------------------------------------
-# serverless created safeday/<stage>/app with placeholders; overwrite it.
+# MERGE the managed keys into the existing secret (rather than overwrite it), so
+# keys set out-of-band — sendgridProdApiToken, googleMapsApiKey, testEmailTo, … —
+# are preserved across deploys. jq's `+` is a shallow merge (right side wins per
+# top-level key), so each managed key REPLACES its old value while extras remain.
 SECRET_ID="safeday/${STAGE}/app"
-note "Writing secret '$SECRET_ID'…"
+note "Updating secret '$SECRET_ID' (merge)…"
+command -v jq >/dev/null || die "jq is required to update the secret (please install jq)"
 
-TMP="$(mktemp)"
-trap 'rm -f "$TMP"' EXIT
-if command -v jq >/dev/null; then
-  jq -n --arg sk "$SECRET_KEY" --arg nx "$NX_KEY" --arg wh "$WEBHOOK_SECRET" --arg mt "$MAILTRAP" \
-    --argjson nxc "$NX_CREDENTIALS_JSON" --argjson nxs "$NX_SHARED_CREDENTIALS_JSON" \
-    '{secretKey:$sk, nxCredentialEncryptionKey:$nx, webhookSecret:$wh, mailtrapApiToken:$mt, nxCredentials:$nxc, nxSharedCredentials:$nxs}' > "$TMP"
-else
-  # Fallback JSON builder (values are keys/tokens with no quotes/backslashes).
-  # nxCredentials/nxSharedCredentials are real JSON, so they need jq.
-  { [ "$NX_CREDENTIALS_JSON" = "{}" ] && [ "$NX_SHARED_CREDENTIALS_JSON" = "null" ]; } \
-    || die "jq is required to set NX_CREDENTIALS_JSON / NX_SHARED_CREDENTIALS_JSON (please install jq)"
-  printf '{"secretKey":"%s","nxCredentialEncryptionKey":"%s","webhookSecret":"%s","mailtrapApiToken":"%s","nxCredentials":{},"nxSharedCredentials":null}' \
-    "$SECRET_KEY" "$NX_KEY" "$WEBHOOK_SECRET" "$MAILTRAP" > "$TMP"
-fi
+EXIST="$(mktemp)"; MANAGED="$(mktemp)"; MERGED="$(mktemp)"
+trap 'rm -f "$EXIST" "$MANAGED" "$MERGED"' EXIT
+
+# Current secret (serverless creates it with placeholders on first deploy).
+aws secretsmanager get-secret-value --profile "$PROFILE" --region "$REGION" \
+  --secret-id "$SECRET_ID" --query SecretString --output text > "$EXIST" 2>/dev/null \
+  || echo '{}' > "$EXIST"
+
+# Keys this script manages, from .env.secrets / the environment. sendgridProdApiToken
+# is only set when SENDGRID_PROD_API_TOKEN is provided, so a blank never clobbers it.
+jq -n --arg sk "$SECRET_KEY" --arg nx "$NX_KEY" --arg wh "$WEBHOOK_SECRET" \
+      --arg mt "$MAILTRAP" --arg sg "$SENDGRID" \
+      --argjson nxc "$NX_CREDENTIALS_JSON" --argjson nxs "$NX_SHARED_CREDENTIALS_JSON" \
+      '{secretKey:$sk, nxCredentialEncryptionKey:$nx, webhookSecret:$wh, mailtrapApiToken:$mt,
+        nxCredentials:$nxc, nxSharedCredentials:$nxs}
+       + (if $sg != "" then {sendgridProdApiToken:$sg} else {} end)' > "$MANAGED"
+
+# existing + managed (top-level shallow merge; managed wins, extras preserved).
+jq -s '.[0] + .[1]' "$EXIST" "$MANAGED" > "$MERGED"
 
 aws secretsmanager put-secret-value \
   --profile "$PROFILE" --region "$REGION" \
   --secret-id "$SECRET_ID" \
-  --secret-string "file://$TMP" \
+  --secret-string "file://$MERGED" \
   --query 'ARN' --output text >/dev/null \
   || die "failed to write secret '$SECRET_ID' (was the deploy successful?)"
 
-echo "  secret '$SECRET_ID' populated"
+echo "  secret '$SECRET_ID' updated (managed keys set; existing extras preserved)"
 
 # ---- 4. done ------------------------------------------------------------
 note "Done."
