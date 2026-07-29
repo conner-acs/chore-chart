@@ -117,6 +117,9 @@ async function me({ user }) {
     ...userResponse(user),
     footage_enabled: footageEnabled,
     allow_operator_direct_resolve: !!(org && org.allow_operator_direct_resolve),
+    // Superadmin-only preference (default false = hide test-org data). Present
+    // for all roles; only the client's superadmin Settings surfaces it.
+    show_test_data: !!user.show_test_data,
   };
 }
 

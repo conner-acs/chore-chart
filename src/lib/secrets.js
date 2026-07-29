@@ -21,6 +21,7 @@ const ENV_FALLBACKS = {
   MAILTRAP_API_TOKEN: "mailtrapApiToken",
   TEST_EMAIL_TO: "testEmailTo",
   GOOGLE_MAPS_API_KEY: "googleMapsApiKey",
+  SENDGRID_PROD_API_TOKEN: "sendgridProdApiToken",
 };
 
 async function load() {

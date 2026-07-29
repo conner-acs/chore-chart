@@ -33,6 +33,7 @@ import {
   archivePlaceholder,
   footageKey,
 } from "../lib/footageArchive.js";
+import { hiddenSiteIdSet } from "../lib/testOrgs.js";
 
 const VALID_STATUSES = ["unprocessed", "discarded", "submitted_for_review", "incident"];
 
@@ -85,6 +86,11 @@ async function listAlerts({ user, query }) {
     const lists = await Promise.all(accessible.map((s) => listAlertsBySite(s)));
     alerts = lists.flat();
   }
+
+  // Superadmin with test-org data hidden: drop alerts in test-org sites (null for
+  // every other user, so this is a no-op except for a superuser with the pref off).
+  const hiddenSites = await hiddenSiteIdSet(user);
+  if (hiddenSites) alerts = alerts.filter((a) => !hiddenSites.has(a.site_id));
 
   // Operator visibility: unprocessed + non-conflicted submitted_for_review only.
   if (user.role === "operator") {
