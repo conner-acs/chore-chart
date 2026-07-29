@@ -11,6 +11,7 @@ import {
   SET_PASSWORD_PURPOSE,
 } from "../lib/auth.js";
 import { getUser, getUserByEmail, putUser } from "../lib/repo/users.js";
+import { getOrganization } from "../lib/repo/organizations.js";
 import { getOrgNxCredentials } from "../lib/secrets.js";
 import { sendPasswordResetEmail } from "../services/email.js";
 import { tokenResponse, userResponse } from "../lib/presenters.js";
@@ -109,7 +110,14 @@ async function me({ user }) {
   // getOrgNxCredentials performs exactly that cross-reference. The client ANDs
   // this with its Camera Connection (Tailscale funnel) toggle.
   const footageEnabled = (await getOrgNxCredentials(user.organization_id)) !== null;
-  return { ...userResponse(user), footage_enabled: footageEnabled };
+  // Surface the org's operator-direct-resolve policy so the client can show the
+  // right decision UI to operators (GET /settings is site_admin-only).
+  const org = user.organization_id ? await getOrganization(user.organization_id) : null;
+  return {
+    ...userResponse(user),
+    footage_enabled: footageEnabled,
+    allow_operator_direct_resolve: !!(org && org.allow_operator_direct_resolve),
+  };
 }
 
 export const handler = createRouter({

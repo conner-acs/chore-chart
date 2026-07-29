@@ -137,6 +137,9 @@ export const updateUserSchema = Joi.object({
 export const orgSettingsSchema = Joi.object({
   footage_sla_days: Joi.number().integer().min(1).max(14),
   require_restore_approval: Joi.boolean(),
+  // When true, an operator may mark an alert genuine/false directly, bypassing
+  // the two-person review (their single decision is final).
+  allow_operator_direct_resolve: Joi.boolean(),
 }).min(1);
 
 // Superuser edit of ANY organisation (PATCH /admin/organizations/{id}): rename
@@ -145,6 +148,7 @@ export const adminOrgUpdateSchema = Joi.object({
   name: Joi.string(),
   footage_sla_days: Joi.number().integer().min(1).max(14),
   require_restore_approval: Joi.boolean(),
+  allow_operator_direct_resolve: Joi.boolean(),
 }).min(1);
 
 // Optional free-text note on a retrieve request or an approve/deny decision.

@@ -52,6 +52,15 @@ export function applyFootagePolicy(org, body, actor) {
     );
     org.require_restore_approval = body.require_restore_approval;
   }
+  if (
+    body.allow_operator_direct_resolve !== undefined &&
+    body.allow_operator_direct_resolve !== (org.allow_operator_direct_resolve ?? false)
+  ) {
+    changes.push(
+      `Operators resolve directly: ${org.allow_operator_direct_resolve ?? false} -> ${body.allow_operator_direct_resolve}`
+    );
+    org.allow_operator_direct_resolve = body.allow_operator_direct_resolve;
+  }
   if (changes.length) {
     org.settings_modified_by = actor.email || actor.id || null;
     org.settings_modified_at = nowIso();

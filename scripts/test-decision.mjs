@@ -45,8 +45,29 @@ ok("operator escalate proposing false_alarm", () => {
   applyDecision(a, op1, escalate("false_alarm"), NOW);
   assert.equal(a.proposer_label, "false_alarm");
 });
-ok("operator direct resolve -> 403 (escalate-only)", () =>
+ok("operator direct resolve WITHOUT org opt-in -> 403 (escalate-only)", () =>
   denies(mk(), op1, resolve("false_alarm"), 403));
+ok("operator direct resolve WITH org opt-in -> discarded (bypasses review)", () => {
+  const a = mk();
+  const action = applyDecision(a, op1, resolve("false_alarm"), NOW, {
+    allowOperatorDirectResolve: true,
+  });
+  assert.equal(action, "discarded");
+  assert.equal(a.status, "discarded");
+  assert.equal(a.resolved_by, "op1");
+  assert.equal(a.review_label, "false_alarm");
+  assert.equal(a.decided_by, "op1");
+  assert.equal(a.proposer_id, null); // no two-person proposer was recorded
+});
+ok("operator direct resolve genuine WITH org opt-in -> incident", () => {
+  const a = mk();
+  applyDecision(a, op1, { status: "incident", decision_label: "genuine" }, NOW, {
+    allowOperatorDirectResolve: true,
+  });
+  assert.equal(a.status, "incident");
+  assert.equal(a.resolved_by, "op1");
+  assert.equal(a.decided_by, "op1");
+});
 ok("admin direct resolve false_alarm -> discarded", () => {
   const a = mk();
   applyDecision(a, admin, { status: "discarded", decision_label: "false_alarm" }, NOW);

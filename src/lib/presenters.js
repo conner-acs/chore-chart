@@ -93,6 +93,8 @@ export const organizationResponse = (o) => ({
   name: o.name,
   footage_sla_days: orgSlaDays(o),
   require_restore_approval: o.require_restore_approval ?? false,
+  // When true, operators may resolve alerts directly (bypass two-person review).
+  allow_operator_direct_resolve: o.allow_operator_direct_resolve ?? false,
   archived_footage_count: o.archived_footage_count ?? 0,
   settings_modified_by: n(o.settings_modified_by),
   settings_modified_at: n(o.settings_modified_at),
