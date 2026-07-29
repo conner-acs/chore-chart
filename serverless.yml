@@ -166,6 +166,11 @@ functions:
       - httpApi: { path: "/api/v1/settings", method: get }
       - httpApi: { path: "/api/v1/settings", method: patch }
 
+  config:
+    handler: src/handlers/config.handler
+    events:
+      - httpApi: { path: "/api/v1/config/workflow", method: get }
+
   # ---- HLS footage: mint a short-lived signed manifest (presigned segments) ----
   footageToken:
     handler: src/handlers/footageToken.handler

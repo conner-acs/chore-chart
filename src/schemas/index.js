@@ -75,6 +75,14 @@ export const alertDecisionSchema = Joi.object({
   }),
   // Optional free-text note (e.g. a dissent reason); persisted as review_note.
   note: Joi.string().allow(null, ""),
+  // Structured resolution report (from the org's workflow config). All optional at
+  // the schema level; the frontend enforces which are required per decision type.
+  // false_alarm/false_positive -> resolution_category; genuine -> urgency +
+  // notified + staff. ids are validated against the org config when applied.
+  resolution_category: Joi.string().max(64).allow(null, ""),
+  resolution_urgency: Joi.string().max(64).allow(null, ""),
+  resolution_notified: Joi.array().items(Joi.string().max(64)),
+  resolution_staff: Joi.array().items(Joi.string().max(128)),
 });
 
 // ---- sites --------------------------------------------------------------
@@ -153,12 +161,33 @@ export const orgSettingsSchema = Joi.object({
 
 // Superuser edit of ANY organisation (PATCH /admin/organizations/{id}): rename
 // and/or change the footage policy. At least one field.
+// Per-org incident-workflow config (superadmin-editable on /organisations/:id).
+const workflowItem = Joi.object({
+  id: Joi.string().max(64).required(),
+  label: Joi.string().max(200).required(),
+});
+const urgencyItem = Joi.object({
+  id: Joi.string().max(64).required(),
+  label: Joi.string().max(200).required(),
+  hint: Joi.string().max(300).allow("", null),
+  severity: Joi.string().valid("critical", "management", "normal").required(),
+});
+export const workflowConfigSchema = Joi.object({
+  categories: Joi.object({
+    false_alarm: Joi.array().items(workflowItem),
+    false_positive: Joi.array().items(workflowItem),
+  }),
+  urgency: Joi.array().items(urgencyItem),
+  notified: Joi.array().items(workflowItem),
+});
+
 export const adminOrgUpdateSchema = Joi.object({
   name: Joi.string(),
   footage_sla_days: Joi.number().integer().min(1).max(14),
   require_restore_approval: Joi.boolean(),
   allow_operator_direct_resolve: Joi.boolean(),
   is_test: Joi.boolean(),
+  workflow_config: workflowConfigSchema,
 }).min(1);
 
 // Optional free-text note on a retrieve request or an approve/deny decision.

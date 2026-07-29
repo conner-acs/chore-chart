@@ -3,6 +3,7 @@
 // missing/optional values to null (DynamoDB omits undefined attributes).
 
 import { orgSlaDays } from "./sla.js";
+import { orgWorkflowConfig } from "./workflowConfig.js";
 
 const n = (v) => (v === undefined ? null : v);
 
@@ -56,6 +57,13 @@ export const alertResponse = (a, sla = {}) => ({
   overdue: sla.overdue ?? false,
   // Footage lifecycle (see lib/footageArchive.js): hot | archived | restoring | restored.
   footage_state: a.footage_state ?? "hot",
+  // Structured resolution report (for reporting). Set when resolved from the
+  // rich workflow form; nulls otherwise.
+  resolution_category: n(a.resolution_category),
+  resolution_urgency: n(a.resolution_urgency),
+  resolution_urgency_severity: n(a.resolution_urgency_severity),
+  resolution_notified: a.resolution_notified ?? null,
+  resolution_staff: a.resolution_staff ?? null,
 });
 
 export const siteResponse = (s) => ({
@@ -98,6 +106,9 @@ export const organizationResponse = (o) => ({
   require_restore_approval: o.require_restore_approval ?? false,
   // When true, operators may resolve alerts directly (bypass two-person review).
   allow_operator_direct_resolve: o.allow_operator_direct_resolve ?? false,
+  // Incident-workflow config (effective = stored merged over defaults) so the
+  // org-edit page can render + edit the current lists.
+  workflow_config: orgWorkflowConfig(o),
   archived_footage_count: o.archived_footage_count ?? 0,
   settings_modified_by: n(o.settings_modified_by),
   settings_modified_at: n(o.settings_modified_at),
@@ -112,6 +123,11 @@ export const restoreRequestResponse = (r) => ({
   organization_id: r.organization_id,
   camera_id: r.camera_id,
   alert_type: r.alert_type,
+  // "management_review" attention requests carry a severity + urgency label;
+  // null for footage retrieve/archive requests.
+  severity: n(r.severity),
+  urgency: n(r.urgency),
+  urgency_label: n(r.urgency_label),
   requested_by: r.requested_by,
   requested_by_label: r.requested_by_label,
   requested_at: r.requested_at,

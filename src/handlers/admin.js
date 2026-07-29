@@ -177,6 +177,7 @@ async function updateOrg({ user, params, body }) {
   if (!org) throw new HttpError(404, "Organization not found");
   if (body.name !== undefined) org.name = body.name;
   if (body.is_test !== undefined) org.is_test = body.is_test;
+  if (body.workflow_config !== undefined) org.workflow_config = body.workflow_config;
   const changes = applyFootagePolicy(org, body, user);
   await putOrganization(org);
   await notifyOrgSettingsChanged({ org, changes, actor: user });
