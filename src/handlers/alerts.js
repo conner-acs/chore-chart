@@ -140,9 +140,12 @@ const LABEL_TO_STATUS = {
 //   T3  submitted_for_review --dispute--> conflicted (flag)       (2nd op picks a different label)
 // Invariants: proposer ≠ resolver; conflicted reviews are admin-only;
 // decided_by stays the proposer, resolved_by/review_* records the resolver.
-export function applyDecision(alert, user, body, now) {
+export function applyDecision(alert, user, body, now, { allowOperatorDirectResolve = false } = {}) {
   const isAdmin = isAdminRole(user.role);
   const isOperator = user.role === "operator";
+  // Org policy: when enabled, operators may resolve directly (bypass two-person
+  // review) - their single decision is final, like an admin's.
+  const canResolveDirectly = isAdmin || allowOperatorDirectResolve;
   const label = body.decision_label; // validated to a known label by the schema
   const note = body.note ?? null;
   const isEscalate = body.status === "submitted_for_review";
@@ -188,14 +191,15 @@ export function applyDecision(alert, user, body, now) {
       alert.resolved_at = null;
       return "submitted_for_review";
     }
-    // T1' — direct resolution is admins only; operators must escalate.
-    if (!isAdmin) {
+    // T1' — direct resolution: admins always; operators only when the org allows
+    // it (allow_operator_direct_resolve). Otherwise operators must escalate.
+    if (!canResolveDirectly) {
       throw new HttpError(
         403,
         "Operators must escalate to review; only admins can discard or confirm directly"
       );
     }
-    // Admin direct resolve: no proposer, the admin is the decider.
+    // Direct resolve: no proposer, the decider is the (admin or operator) actor.
     alert.decided_by = user.id;
     alert.decided_at = now;
     return resolveWithLabel();
@@ -274,7 +278,15 @@ async function submitDecision({ user, params, body }) {
     throw new HttpError(403, "Access denied");
   }
   const now = nowIso();
-  const action = applyDecision(alert, user, body, now);
+  // Operators can resolve directly only if their org opts in; admins always can.
+  // Only the org read is needed and only for operators (admins skip it).
+  let allowOperatorDirectResolve = false;
+  if (user.role === "operator") {
+    const orgId = alert.organization_id ?? user.organization_id;
+    const org = orgId ? await getOrganization(orgId) : null;
+    allowOperatorDirectResolve = !!(org && org.allow_operator_direct_resolve);
+  }
+  const action = applyDecision(alert, user, body, now, { allowOperatorDirectResolve });
   await putAlert(alert);
   await logAction(alert, user, action, now);
 
