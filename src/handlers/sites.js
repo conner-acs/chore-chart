@@ -12,6 +12,7 @@ import {
 } from "../lib/repo/sites.js";
 import { getUser, getUserByEmail } from "../lib/repo/users.js";
 import { getOrganization } from "../lib/repo/organizations.js";
+import { hiddenOrgIdSet } from "../lib/testOrgs.js";
 import {
   getPermission,
   putPermission,
@@ -114,6 +115,9 @@ async function listSites({ user, query }) {
   } else {
     const accessible = await getAccessibleSiteIds(user); // null = superuser
     sites = accessible === null ? await listAllSites() : await getSitesByIds(accessible);
+    // Superadmin with test-org data hidden: drop sites in test orgs.
+    const hiddenOrgs = await hiddenOrgIdSet(user);
+    if (hiddenOrgs) sites = sites.filter((s) => !hiddenOrgs.has(s.organization_id));
     sites.sort((a, b) => a.name.localeCompare(b.name));
   }
   return sites.map(siteResponse);

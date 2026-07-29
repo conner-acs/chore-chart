@@ -91,6 +91,9 @@ export const auditLogEntryResponse = (e) => ({
 export const organizationResponse = (o) => ({
   id: o.id,
   name: o.name,
+  // Test organisation: its data is hidden from a superadmin's views unless they
+  // enable "view test organisation data".
+  is_test: o.is_test ?? false,
   footage_sla_days: orgSlaDays(o),
   require_restore_approval: o.require_restore_approval ?? false,
   // When true, operators may resolve alerts directly (bypass two-person review).

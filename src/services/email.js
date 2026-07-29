@@ -1,73 +1,65 @@
 import { getOptionalSecret } from "../lib/secrets.js";
 
-// Transactional email with a provider switch (EMAIL_PROVIDER = ses | mailtrap).
-// Production uses Amazon SES (IAM-authenticated, co-located with the backend);
-// Mailtrap remains for local/dev sandbox capture. Sending is best-effort and
-// never throws into the request path (mirrors app/services/email.py).
-//
-// Resilience: when SES is the primary provider and a send fails (e.g. the
-// sending domain isn't DKIM-verified yet, or SES is throttled/down), delivery
-// automatically FALLS BACK to Mailtrap so transactional mail — invites, password
-// resets, alerts — still goes out. Requires mailtrapApiToken to be configured;
-// otherwise both providers report failure and the caller sees sent: false.
+// Transactional email. The provider is chosen by the ENVIRONMENT: any
+// environment whose (lower-cased) name CONTAINS "prod" sends via SendGrid,
+// authenticated with the `sendgridProdApiToken` secret retrieved from AWS
+// Secrets Manager. Every other environment (dev/test/local/staging/…) sends via
+// Mailtrap's sandbox for capture. Best-effort — never throws into the request path.
 
 const cfg = {
-  provider: (process.env.EMAIL_PROVIDER || "mailtrap").toLowerCase(),
   senderName: process.env.EMAIL_SENDER_NAME || process.env.MAILTRAP_SENDER_NAME || "SafeDay",
   publicBaseUrl: process.env.PUBLIC_BASE_URL || "http://localhost:3000",
-  environment: process.env.ENVIRONMENT || "development",
-  // SES
-  sesFrom: process.env.SES_FROM || "",
-  sesRegion: process.env.SES_REGION || process.env.AWS_REGION || "ap-southeast-2",
-  // Mailtrap
+  // Deployed Lambdas set ENVIRONMENT; .env.test uses lowercase `environment`.
+  environment: process.env.ENVIRONMENT || process.env.environment || "development",
+  // Production sender address (must be a verified SendGrid sender). Reuses SES_FROM.
+  fromEmail: process.env.EMAIL_FROM || process.env.SES_FROM || "no-reply@safeday.com.au",
+  // Mailtrap (non-prod sandbox capture).
   mailtrapSenderEmail: process.env.MAILTRAP_SENDER_EMAIL || "hello@demomailtrap.co",
   mailtrapSandbox: (process.env.MAILTRAP_SANDBOX || "true").toLowerCase() === "true",
   mailtrapInboxId: process.env.MAILTRAP_INBOX_ID || "",
   mailtrapDevRecipient: process.env.MAILTRAP_DEV_RECIPIENT || "",
 };
 
+// Production iff the environment name contains "prod" (prod, production, prod-au…).
+const isProdEnv = () => cfg.environment.toLowerCase().includes("prod");
+
 const isDev = () =>
   ["development", "dev", "local", "test"].includes(cfg.environment.toLowerCase());
-
-// Lazily-created, reused SES client (only when the SES provider is in use).
-let _sesClient = null;
-async function sesClient() {
-  if (_sesClient) return _sesClient;
-  const { SESv2Client } = await import("@aws-sdk/client-sesv2");
-  _sesClient = new SESv2Client({ region: cfg.sesRegion });
-  return _sesClient;
-}
 
 // ---- providers ----------------------------------------------------------
 // Each returns { sent, messageId?, error? } and never throws.
 
-async function deliverViaSes({ toEmail, subject, text, html }) {
-  if (!cfg.sesFrom) {
-    return { sent: false, error: "SES_FROM not configured" };
+// Production provider: SendGrid v3 Mail Send API, authenticated with the
+// `sendgridProdApiToken` secret retrieved from AWS Secrets Manager.
+async function deliverViaSendgrid({ toEmail, subject, text, html }) {
+  const token = await getOptionalSecret("sendgridProdApiToken");
+  if (!token) {
+    return { sent: false, error: "SendGrid token (sendgridProdApiToken) not configured" };
   }
-  const from = cfg.senderName ? `${cfg.senderName} <${cfg.sesFrom}>` : cfg.sesFrom;
+  if (!cfg.fromEmail) return { sent: false, error: "sender email not configured" };
+  const payload = {
+    personalizations: [{ to: [{ email: toEmail }] }],
+    from: { email: cfg.fromEmail, name: cfg.senderName },
+    subject,
+    // SendGrid requires content ordered text/plain before text/html.
+    content: [
+      { type: "text/plain", value: text },
+      ...(html ? [{ type: "text/html", value: html }] : []),
+    ],
+  };
   try {
-    const { SendEmailCommand } = await import("@aws-sdk/client-sesv2");
-    const client = await sesClient();
-    const out = await client.send(
-      new SendEmailCommand({
-        FromEmailAddress: from,
-        Destination: { ToAddresses: [toEmail] },
-        Content: {
-          Simple: {
-            Subject: { Data: subject },
-            Body: {
-              Text: { Data: text },
-              ...(html ? { Html: { Data: html } } : {}),
-            },
-          },
-        },
-      })
-    );
-    return { sent: true, messageId: out.MessageId };
+    const resp = await fetch("https://api.sendgrid.com/v3/mail/send", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (resp.status >= 200 && resp.status < 300) {
+      return { sent: true, messageId: resp.headers.get("x-message-id") || undefined };
+    }
+    const body = await resp.text().catch(() => "");
+    return { sent: false, error: `SendGrid HTTP ${resp.status}${body ? `: ${body.slice(0, 300)}` : ""}` };
   } catch (err) {
-    console.warn("SES send failed:", err.name, err.message);
-    return { sent: false, error: `${err.name}: ${err.message}` };
+    return { sent: false, error: err.message };
   }
 }
 
@@ -103,34 +95,16 @@ async function deliverViaMailtrap({ toEmail, subject, text, html, category }) {
   }
 }
 
-// Dispatch to the configured provider, falling back to Mailtrap if SES fails.
+// Choose the provider by environment: "*prod*" -> SendGrid, otherwise Mailtrap.
 // Returns rich detail; never throws.
 export async function deliver(msg) {
-  const primary = cfg.provider;
-  let provider = primary;
-  let result =
-    primary === "ses" ? await deliverViaSes(msg) : await deliverViaMailtrap(msg);
+  const prod = isProdEnv();
+  const provider = prod ? "sendgrid" : "mailtrap";
+  const result = prod ? await deliverViaSendgrid(msg) : await deliverViaMailtrap(msg);
 
-  // SES → Mailtrap fallback: keep mail flowing while SES/DKIM is unavailable.
-  if (!result.sent && primary === "ses") {
-    console.warn(
-      `email via ses failed (${result.error}); falling back to mailtrap: ${msg.subject}`
-    );
-    const fallback = await deliverViaMailtrap(msg);
-    if (fallback.sent) {
-      result = { ...fallback, fellBackFrom: "ses", sesError: result.error };
-      provider = "mailtrap";
-    } else {
-      // Both failed — surface both errors so the cause is diagnosable.
-      result = { sent: false, error: `ses: ${result.error}; mailtrap: ${fallback.error}` };
-      provider = "ses+mailtrap";
-    }
-  }
-
-  const from = provider === "mailtrap" ? cfg.mailtrapSenderEmail : cfg.sesFrom;
+  const from = prod ? cfg.fromEmail : cfg.mailtrapSenderEmail;
   if (result.sent) {
-    const via = result.fellBackFrom ? `${provider} (fallback from ${result.fellBackFrom})` : provider;
-    console.info(`email sent via ${via} to ${msg.toEmail}: ${msg.subject}`);
+    console.info(`email sent via ${provider} to ${msg.toEmail}: ${msg.subject}`);
   } else {
     console.warn(`email not sent via ${provider} (${result.error}): ${msg.subject}`);
   }

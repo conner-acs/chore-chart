@@ -85,6 +85,15 @@ export const addUserToSiteSchema = Joi.object({
 // ---- admin --------------------------------------------------------------
 export const createOrganizationSchema = Joi.object({
   name: Joi.string().required(),
+  // Flag the org as a test organisation (its data is hidden from a superadmin's
+  // views unless they enable "view test organisation data").
+  is_test: Joi.boolean().default(false),
+});
+
+// Superuser self-preference (PATCH /admin/preferences). Currently just the
+// test-org visibility toggle; default false so test data is hidden by default.
+export const preferencesSchema = Joi.object({
+  show_test_data: Joi.boolean().required(),
 });
 
 const siteFields = {
@@ -149,6 +158,7 @@ export const adminOrgUpdateSchema = Joi.object({
   footage_sla_days: Joi.number().integer().min(1).max(14),
   require_restore_approval: Joi.boolean(),
   allow_operator_direct_resolve: Joi.boolean(),
+  is_test: Joi.boolean(),
 }).min(1);
 
 // Optional free-text note on a retrieve request or an approve/deny decision.

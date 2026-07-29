@@ -70,7 +70,9 @@ import {
   orgUserCreateSchema,
   orgUserUpdateSchema,
   testAlertSchema,
+  preferencesSchema,
 } from "../schemas/index.js";
+import { shouldHideTestData, testOrgIdsFrom } from "../lib/testOrgs.js";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -156,7 +158,9 @@ async function listOrgs({ query }) {
 }
 
 async function createOrg({ body }) {
-  return organizationResponse(await putOrganization({ id: newId(), name: body.name }));
+  return organizationResponse(
+    await putOrganization({ id: newId(), name: body.name, is_test: body.is_test ?? false })
+  );
 }
 
 async function getOrg({ params }) {
@@ -172,6 +176,7 @@ async function updateOrg({ user, params, body }) {
   const org = await getOrganization(params.organization_id);
   if (!org) throw new HttpError(404, "Organization not found");
   if (body.name !== undefined) org.name = body.name;
+  if (body.is_test !== undefined) org.is_test = body.is_test;
   const changes = applyFootagePolicy(org, body, user);
   await putOrganization(org);
   await notifyOrgSettingsChanged({ org, changes, actor: user });
@@ -190,13 +195,39 @@ async function listOrgUsersAdmin({ params, query }) {
 }
 
 // Network-wide totals for the super_admin dashboard KPI tiles.
-async function getStats() {
-  const [organizations, centres, users] = await Promise.all([
-    countOrganizations(),
-    countSites(),
-    countUsers(),
+async function getStats({ user }) {
+  // Cheap count-scans unless we must exclude test-org data for this superadmin.
+  if (!shouldHideTestData(user)) {
+    const [organizations, centres, users] = await Promise.all([
+      countOrganizations(),
+      countSites(),
+      countUsers(),
+    ]);
+    return { organizations, centres, users };
+  }
+  // Hiding test orgs: aggregate from full lists so counts exclude them.
+  const [orgs, sites, users] = await Promise.all([
+    listOrganizations(),
+    listAllSites(),
+    listAllUsers(),
   ]);
-  return { organizations, centres, users };
+  const test = testOrgIdsFrom(orgs);
+  return {
+    organizations: orgs.filter((o) => !test.has(o.id)).length,
+    centres: sites.filter((s) => !test.has(s.organization_id)).length,
+    users: users.filter((u) => !test.has(u.organization_id)).length,
+  };
+}
+
+// Superuser self-preference: toggle whether test-org data shows in their views.
+// Writes to the caller's OWN user record (id from the token), so a superuser can
+// never change another user's preference.
+async function updatePreferences({ user, body }) {
+  const u = await getUser(user.id);
+  if (!u) throw new HttpError(404, "User not found");
+  u.show_test_data = !!body.show_test_data;
+  await putUser(u);
+  return { show_test_data: u.show_test_data };
 }
 
 async function deleteOrg({ params }) {
@@ -315,9 +346,12 @@ async function deleteSiteAdmin({ params }) {
 // All users across all orgs. ?organization_id= filters to one org; ?limit=
 // paginates ({ items, next_cursor }), else returns the full array (backward compat
 // - findUserByEmail relies on the array shape).
-async function listUsers({ query }) {
+async function listUsers({ user, query }) {
   const orgs = await listOrganizations();
   const nameFor = ((m) => (id) => m.get(id))(new Map(orgs.map((o) => [o.id, o.name])));
+  // Hide users belonging to test orgs (superadmin with the pref off).
+  const test = shouldHideTestData(user) ? testOrgIdsFrom(orgs) : null;
+  const dropTest = (arr) => (test ? arr.filter((u) => !test.has(u.organization_id)) : arr);
   if (query.limit) {
     const page = query.organization_id
       ? await listUsersByOrgPage(query.organization_id, {
@@ -325,12 +359,12 @@ async function listUsers({ query }) {
           cursor: query.cursor,
         })
       : await listAllUsersPage({ limit: pageLimit(query.limit), cursor: query.cursor });
-    return { items: await usersToListItems(page.items, nameFor), next_cursor: page.cursor };
+    return { items: await usersToListItems(dropTest(page.items), nameFor), next_cursor: page.cursor };
   }
   const users = query.organization_id
     ? await listUsersByOrg(query.organization_id)
     : await listAllUsers();
-  return usersToListItems(users, nameFor);
+  return usersToListItems(dropTest(users), nameFor);
 }
 
 async function createUser({ body }) {
@@ -732,6 +766,11 @@ export const handler = createRouter({
     schema: orgUserUpdateSchema,
   },
   "GET /api/v1/admin/stats": { fn: getStats, auth: "superuser" },
+  "PATCH /api/v1/admin/preferences": {
+    fn: updatePreferences,
+    auth: "superuser",
+    schema: preferencesSchema,
+  },
   "GET /api/v1/admin/organizations": { fn: listOrgs, auth: "superuser" },
   "POST /api/v1/admin/organizations": {
     fn: createOrg,
