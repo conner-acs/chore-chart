@@ -33,6 +33,7 @@ import {
   archivePlaceholder,
   footageKey,
 } from "../lib/footageArchive.js";
+import { urgencySeverity, urgencyLabel } from "../lib/workflowConfig.js";
 import { hiddenSiteIdSet } from "../lib/testOrgs.js";
 
 const VALID_STATUSES = ["unprocessed", "discarded", "submitted_for_review", "incident"];
@@ -161,6 +162,23 @@ export function applyDecision(alert, user, body, now, { allowOperatorDirectResol
     throw new HttpError(403, "Access denied");
   }
 
+  // Capture the structured resolution report (from the org's workflow form) onto
+  // the alert for reporting. Only fields PRESENT in the body are written, so a
+  // second reviewer's plain confirm never wipes the proposer's report. The
+  // urgency severity is denormalised by the caller (submitDecision has the org).
+  if (body.resolution_category !== undefined) {
+    alert.resolution_category = body.resolution_category || null;
+  }
+  if (body.resolution_urgency !== undefined) {
+    alert.resolution_urgency = body.resolution_urgency || null;
+  }
+  if (body.resolution_notified !== undefined) {
+    alert.resolution_notified = body.resolution_notified || null;
+  }
+  if (body.resolution_staff !== undefined) {
+    alert.resolution_staff = body.resolution_staff || null;
+  }
+
   // Apply a terminal resolution from `label`; decided_by (proposer) is preserved.
   const actorName = user.full_name || user.email || null;
   const resolveWithLabel = () => {
@@ -284,17 +302,43 @@ async function submitDecision({ user, params, body }) {
     throw new HttpError(403, "Access denied");
   }
   const now = nowIso();
+  const orgId = alert.organization_id ?? user.organization_id;
+  const org = orgId ? await getOrganization(orgId) : null;
   // Operators can resolve directly only if their org opts in; admins always can.
-  // Only the org read is needed and only for operators (admins skip it).
-  let allowOperatorDirectResolve = false;
-  if (user.role === "operator") {
-    const orgId = alert.organization_id ?? user.organization_id;
-    const org = orgId ? await getOrganization(orgId) : null;
-    allowOperatorDirectResolve = !!(org && org.allow_operator_direct_resolve);
-  }
+  const allowOperatorDirectResolve =
+    user.role === "operator" && !!(org && org.allow_operator_direct_resolve);
+
   const action = applyDecision(alert, user, body, now, { allowOperatorDirectResolve });
+
+  // Denormalise the urgency severity from the org config (for reporting + the
+  // attention-request routing below).
+  let severity = "normal";
+  if (body.decision_label === "genuine" && body.resolution_urgency) {
+    severity = urgencySeverity(org, body.resolution_urgency);
+    alert.resolution_urgency_severity = severity;
+  }
+
   await putAlert(alert);
   await logAction(alert, user, action, now);
+
+  // A genuine incident with a non-normal urgency raises an admin-attention request
+  // (critical -> pinned notification + dashboard banner; management -> normal
+  // Requests-tab item). Deduped to one pending request per alert so the two-person
+  // flow (escalate then confirm) doesn't double-raise it.
+  if (severity === "critical" || severity === "management") {
+    try {
+      const existing = (await listRestoreRequestsByOrg(orgId)).find(
+        (r) =>
+          r.alert_id === alert.id && r.type === "management_review" && r.status === "pending"
+      );
+      if (!existing) {
+        await putRestoreRequest(buildAttentionRequest(alert, user, severity, body, now, org));
+        await logAction(alert, user, "management_requested", now);
+      }
+    } catch (err) {
+      console.warn("[alerts] attention request failed:", err.message);
+    }
+  }
 
   // Notify site admins on first escalation (submitted_for_review) and on a
   // conflict raised by the second operator. Awaited (Lambda freezes after the
@@ -365,6 +409,34 @@ function buildRestoreRequest(alert, user, note, now, type = "retrieve") {
     requested_by_label: user.full_name || user.email,
     requested_at: now,
     note: note ?? null,
+    status: "pending",
+    reviewed_by: null,
+    reviewed_by_label: null,
+    reviewed_at: null,
+    review_note: null,
+  };
+}
+
+// A management/critical attention request for a genuine incident. Reuses the same
+// request queue (type "management_review") so it surfaces in the site-admin
+// Requests tab + bell. `severity` is "critical" | "management" (from the org's
+// urgency config); the frontend pins + red-banners the critical ones.
+function buildAttentionRequest(alert, user, severity, body, now, org) {
+  return {
+    id: newId(),
+    alert_id: alert.id,
+    type: "management_review",
+    severity,
+    urgency: body.resolution_urgency || null,
+    urgency_label: urgencyLabel(org, body.resolution_urgency),
+    site_id: alert.site_id,
+    organization_id: alert.organization_id ?? user.organization_id,
+    camera_id: alert.camera_id,
+    alert_type: alert.alert_type,
+    requested_by: user.id,
+    requested_by_label: user.full_name || user.email,
+    requested_at: now,
+    note: body.note ?? null,
     status: "pending",
     reviewed_by: null,
     reviewed_by_label: null,
@@ -465,7 +537,11 @@ async function archiveFootage({ user, params, body }) {
   const now = nowIso();
   const orgId = alert.organization_id ?? user.organization_id;
   const sla = () => slaFields(alert, slaDays, Date.now());
-  if (!slaFields(alert, slaDays, nowMs).overdue) {
+  // A RESOLVED alert (incident|discarded) can be archived on demand - operators
+  // can't see resolved alerts, so this path is site_admin/superuser only. Any
+  // other alert must be past its retention window (the auto-archival threshold).
+  const isResolved = alert.status === "incident" || alert.status === "discarded";
+  if (!isResolved && !slaFields(alert, slaDays, nowMs).overdue) {
     throw new HttpError(409, "Footage is within its retention window; not yet due for archival");
   }
 
@@ -520,19 +596,16 @@ async function reviewRestore(user, requestId, approved, note) {
   let alertOut = null;
   if (alert) {
     const slaDays = orgSlaDays(await getOrganization(req.organization_id));
-    const isArchive = (req.type ?? "retrieve") === "archive";
+    const type = req.type ?? "retrieve";
     if (approved) {
-      if (isArchive) await applyArchiveAction(alert, req.organization_id, Date.now());
-      else await applyRestoreAction(alert, Date.now());
+      if (type === "archive") await applyArchiveAction(alert, req.organization_id, Date.now());
+      else if (type === "retrieve") await applyRestoreAction(alert, Date.now());
+      // "management_review" has no footage side-effect - actioning it just flips
+      // the request status (clearing it from the queue/banner/pins).
     }
-    const action = isArchive
-      ? approved
-        ? "archive_approved"
-        : "archive_denied"
-      : approved
-        ? "restore_approved"
-        : "restore_denied";
-    await logAction(alert, user, action, now);
+    const verb =
+      type === "management_review" ? "management" : type === "archive" ? "archive" : "restore";
+    await logAction(alert, user, `${verb}_${approved ? "approved" : "denied"}`, now);
     alertOut = alertResponse(alert, slaFields(alert, slaDays, Date.now()));
   }
   return { request: restoreRequestResponse(req), alert: alertOut };
