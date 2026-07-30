@@ -2,6 +2,7 @@ import {
   SecretsManagerClient,
   GetSecretValueCommand,
 } from "@aws-sdk/client-secrets-manager";
+import { getOrgNxSecret } from "./orgNxSecret.js";
 
 // Loads the application's secret bundle from AWS Secrets Manager once per cold
 // start and caches it. The whole app's secrets live in a single JSON secret
@@ -105,6 +106,10 @@ function normalizeCreds(username, password) {
 }
 
 export async function getOrgNxCredentials(organizationId) {
+  // Per-org secret (set via /organisations/:id) wins over the shared bundle.
+  const perOrg = await getOrgNxSecret(organizationId);
+  if (perOrg) return perOrg;
+
   const secrets = await load();
 
   const explicit = (secrets.nxCredentials || {})[organizationId];
