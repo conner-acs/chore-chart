@@ -50,12 +50,16 @@ export const webhookAlertSchema = Joi.object({
   camera_id: Joi.string().pattern(NX_CAMERA_ID).required().messages({
     "string.pattern.base": "camera_id must be a valid Nx Witness camera UUID",
   }),
-  alert_type: Joi.string().pattern(ALERT_TYPE).required().messages({
+  // Lenient on the webhook: the SHOGUN plugin's alert_type may be an inputPortId
+  // (dots) or a caption (spaces); the handler normalises it (see webhooks.js).
+  alert_type: Joi.string().max(100).pattern(/^[a-zA-Z0-9 ._-]{1,100}$/).required().messages({
     "string.pattern.base":
-      "alert_type must be 1-100 alphanumeric, underscore, or hyphen characters",
+      "alert_type must be 1-100 letters, numbers, space, dot, underscore or hyphen",
   }),
-  start_timestamp: Joi.date().iso().required(),
-  end_timestamp: Joi.date().iso().required(),
+  // Accept ISO-8601, epoch ms/seconds, or any JS-parseable timestamp — the plugin
+  // and Nx event rules don't all emit strict ISO. The handler coerces to ISO.
+  start_timestamp: Joi.date().required(),
+  end_timestamp: Joi.date().required(),
   nx_bookmark_id: Joi.string().allow(null),
 });
 
