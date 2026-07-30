@@ -2,6 +2,7 @@ import { createRouter, ROLE_RANK } from "../lib/middleware.js";
 import { HttpError } from "../lib/response.js";
 import { newId } from "../lib/ids.js";
 import { getSecret, getOrgNxCredentials } from "../lib/secrets.js";
+import { getOrgNxSecret, putOrgNxSecret } from "../lib/orgNxSecret.js";
 import { receiveAlert } from "./webhooks.js";
 import { sweep } from "./archiver.js";
 import { userCanAccessSite, getAccessibleSiteIds } from "../lib/permissions.js";
@@ -65,6 +66,7 @@ import {
   adminOrgUpdateSchema,
   createSiteSchema,
   createSiteInOrgSchema,
+  nxConnectionSchema,
   createUserSchema,
   updateUserSchema,
   orgUserCreateSchema,
@@ -182,6 +184,77 @@ async function updateOrg({ user, params, body }) {
   await putOrganization(org);
   await notifyOrgSettingsChanged({ org, changes, actor: user });
   return organizationResponse(org);
+}
+
+// Superuser: set the org-level Nx Witness connection (host + credentials). The
+// password is write-only — blank/omitted keeps the current one. Credentials go to a
+// per-org Secrets Manager secret; the host + username are stored on the org (for
+// display) and propagated to every site so the per-site footage path keeps working.
+async function updateOrgNxConnection({ params, body }) {
+  const orgId = params.organization_id;
+  const org = await getOrganization(orgId);
+  if (!org) throw new HttpError(404, "Organization not found");
+
+  const nxHost = body.nx_host.trim().replace(/\/$/, "");
+  const nxUsername = body.nx_username.trim();
+  let password = body.nx_password;
+  if (!password) {
+    const current = await getOrgNxSecret(orgId);
+    if (!current) {
+      throw new HttpError(400, "A password is required the first time you set the Nx connection.");
+    }
+    password = current.password;
+  }
+
+  await putOrgNxSecret(orgId, { username: nxUsername, password });
+  org.nx_host = nxHost;
+  org.nx_username = nxUsername;
+  await putOrganization(org);
+
+  // Propagate to the org's sites so the per-site footage path (/footage/{alert_id})
+  // uses the same host + credentials.
+  const encrypted = await encryptNxPassword(password);
+  const sites = await listSitesByOrg(orgId);
+  await Promise.all(
+    sites.map((s) => {
+      s.nx_host = nxHost;
+      s.nx_username = nxUsername;
+      s.nx_password_encrypted = encrypted;
+      return putSite(s);
+    })
+  );
+
+  return { nx_host: nxHost, nx_username: nxUsername, nx_has_password: true, sites_updated: sites.length };
+}
+
+// Superuser: prove the org's stored Nx host + credentials work (login + list cameras).
+async function testOrgNxConnection({ params }) {
+  const orgId = params.organization_id;
+  const org = await getOrganization(orgId);
+  if (!org) throw new HttpError(404, "Organization not found");
+  if (!org.nx_host) throw new HttpError(400, "Set the Nx host and credentials first.");
+  const creds = await getOrgNxCredentials(orgId);
+  if (!creds) throw new HttpError(400, "No Nx credentials stored for this organisation.");
+  try {
+    const client = new NxWitnessClient({
+      host: org.nx_host,
+      username: creds.username,
+      password: creds.password,
+    });
+    const devices = await client.listDevices();
+    const cameraCount = Array.isArray(devices)
+      ? devices.filter((d) => d && typeof d === "object").length
+      : 0;
+    return { ok: true, host: org.nx_host, camera_count: cameraCount };
+  } catch (err) {
+    if (err instanceof NxWitnessError) {
+      throw new HttpError(
+        502,
+        "The Nx Witness server rejected the request (check host/credentials)."
+      );
+    }
+    throw new HttpError(502, "Could not reach the Nx Witness server.");
+  }
 }
 
 // One page of a specific org's users (org-detail view).
@@ -789,6 +862,15 @@ export const handler = createRouter({
     fn: deleteOrg,
     auth: "superuser",
     status: 204,
+  },
+  "PUT /api/v1/admin/organizations/{organization_id}/nx-connection": {
+    fn: updateOrgNxConnection,
+    auth: "superuser",
+    schema: nxConnectionSchema,
+  },
+  "POST /api/v1/admin/organizations/{organization_id}/nx-connection/test": {
+    fn: testOrgNxConnection,
+    auth: "superuser",
   },
   "GET /api/v1/admin/organizations/{organization_id}/sites": {
     fn: listOrgSites,

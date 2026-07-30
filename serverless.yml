@@ -23,6 +23,9 @@ provider:
   environment:
     STAGE: ${self:provider.stage}
     SECRETS_ID: ${self:custom.secretName}
+    # Prefix for per-org Nx credential secrets (one secret per org, set on
+    # /organisations/:id). See lib/orgNxSecret.js + the IAM block below.
+    NX_ORG_SECRET_PREFIX: ${self:service}/${self:provider.stage}/nx/
     ORGANIZATIONS_TABLE: ${self:custom.prefix}-organizations
     SITES_TABLE: ${self:custom.prefix}-sites
     USERS_TABLE: ${self:custom.prefix}-users
@@ -69,6 +72,16 @@ provider:
             - secretsmanager:GetSecretValue
           Resource:
             - !Ref AppSecret
+        # Per-org Nx credential secrets (safeday/<stage>/nx/<orgId>), created +
+        # rotated from the /organisations/:id Nx-connection screen.
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+            - secretsmanager:PutSecretValue
+            - secretsmanager:CreateSecret
+            - secretsmanager:DescribeSecret
+          Resource:
+            - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${self:service}/${self:provider.stage}/nx/*"
         - Effect: Allow
           Action:
             - execute-api:ManageConnections

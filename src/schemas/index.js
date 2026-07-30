@@ -127,6 +127,17 @@ export const createSiteSchema = Joi.object({
 // POST /admin/organizations/{id}/sites — org comes from the URL path.
 export const createSiteInOrgSchema = Joi.object(siteFields);
 
+// PUT /admin/organizations/{id}/nx-connection — org-level Nx host + credentials.
+// nx_password is write-only: blank/omitted keeps the currently stored password.
+export const nxConnectionSchema = Joi.object({
+  nx_host: Joi.string()
+    .uri({ scheme: ["http", "https"] })
+    .required()
+    .messages({ "string.uri": "nx_host must be an http(s) URL" }),
+  nx_username: Joi.string().min(1).max(200).required(),
+  nx_password: Joi.string().max(500).allow("", null),
+});
+
 export const createUserSchema = Joi.object({
   email: email.required(),
   password: Joi.string().required(),

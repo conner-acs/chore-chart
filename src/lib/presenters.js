@@ -110,6 +110,12 @@ export const organizationResponse = (o) => ({
   // org-edit page can render + edit the current lists.
   workflow_config: orgWorkflowConfig(o),
   archived_footage_count: o.archived_footage_count ?? 0,
+  // Org-level Nx Witness connection (managed on /organisations/:id). The password
+  // lives only in Secrets Manager and is never returned; nx_has_password reflects
+  // whether credentials have been stored (username is set alongside the password).
+  nx_host: n(o.nx_host),
+  nx_username: n(o.nx_username),
+  nx_has_password: Boolean(o.nx_username),
   settings_modified_by: n(o.settings_modified_by),
   settings_modified_at: n(o.settings_modified_at),
 });
