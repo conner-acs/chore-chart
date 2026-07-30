@@ -40,7 +40,12 @@ export async function getOrgNxSecret(orgId) {
     const out = await client.send(new GetSecretValueCommand({ SecretId: secretId(orgId) }));
     creds = normalize(JSON.parse(out.SecretString || "{}"));
   } catch (err) {
-    if (err.name !== "ResourceNotFoundException") throw err; // real error surfaces
+    // Fall through to the shared bundle on ANY read failure so a per-org Secrets
+    // Manager error (throttle / AccessDenied) can't break footage for bundle-only
+    // orgs. Non-"not found" errors are logged for visibility.
+    if (err.name !== "ResourceNotFoundException") {
+      console.warn(`[orgNxSecret] read failed for ${orgId}: ${err.name} - ${err.message}`);
+    }
     creds = null;
   }
   cache.set(orgId, { at: Date.now(), creds });

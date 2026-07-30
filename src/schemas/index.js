@@ -131,10 +131,12 @@ export const createSiteInOrgSchema = Joi.object(siteFields);
 // nx_password is write-only: blank/omitted keeps the currently stored password.
 export const nxConnectionSchema = Joi.object({
   nx_host: Joi.string()
+    .trim()
     .uri({ scheme: ["http", "https"] })
     .required()
     .messages({ "string.uri": "nx_host must be an http(s) URL" }),
-  nx_username: Joi.string().min(1).max(200).required(),
+  // .trim() so a whitespace-only username fails min(1) rather than being stored blank.
+  nx_username: Joi.string().trim().min(1).max(200).required(),
   nx_password: Joi.string().max(500).allow("", null),
 });
 
