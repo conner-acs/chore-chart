@@ -22,6 +22,10 @@ export const userResponse = (u) => ({
   organization_id: u.organization_id,
   account_created: u.account_created,
   is_active: u.is_active,
+  // Per-user notification preferences (Settings toggles). Default enabled when the
+  // attribute has never been set, preserving the historical always-send behaviour.
+  email_notifications: u.email_notifications !== false,
+  sms_notifications: u.sms_notifications !== false,
 });
 
 export const alertResponse = (a, sla = {}) => ({

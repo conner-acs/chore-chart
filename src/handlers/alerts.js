@@ -273,7 +273,14 @@ async function notifySiteAdmins(alert, actor, kind) {
   if (!userIds || userIds.length === 0) return;
   const users = await Promise.all(userIds.map((id) => getUser(id)));
   const admins = users.filter(
-    (u) => u && u.role === "site_admin" && u.is_active !== false && u.email
+    (u) =>
+      u &&
+      u.role === "site_admin" &&
+      u.is_active !== false &&
+      u.email &&
+      // Respect the recipient's email-notification preference (default on). This is
+      // a notification, not a security email, so an opted-out admin is skipped.
+      u.email_notifications !== false
   );
   if (admins.length === 0) return;
 

@@ -104,6 +104,15 @@ export const preferencesSchema = Joi.object({
   show_test_data: Joi.boolean().required(),
 });
 
+// Per-user notification preferences (PATCH /api/v1/auth/me — any authenticated
+// user edits their OWN prefs). email_notifications gates non-transactional emails
+// (escalation + settings-change); sms_notifications is persisted for the (not yet
+// built) SMS escalation path. At least one field; both default true server-side.
+export const notificationPrefsSchema = Joi.object({
+  email_notifications: Joi.boolean(),
+  sms_notifications: Joi.boolean(),
+}).min(1);
+
 const siteFields = {
   name: Joi.string().required(),
   site_token: Joi.string().min(2).pattern(SITE_TOKEN).required().messages({

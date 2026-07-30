@@ -11,7 +11,14 @@ export async function notifyOrgSettingsChanged({ org, changes, actor }) {
   try {
     const users = await listUsersByOrg(org.id);
     const admins = users.filter(
-      (u) => u && u.role === "site_admin" && u.is_active !== false && u.email
+      (u) =>
+        u &&
+        u.role === "site_admin" &&
+        u.is_active !== false &&
+        u.email &&
+        // Respect the recipient's email-notification preference (default on) - this
+        // is a notification, not a security email, so opted-out admins are skipped.
+        u.email_notifications !== false
     );
     if (admins.length === 0) return;
     const actorName = actor.full_name || actor.email || "An administrator";

@@ -20,6 +20,7 @@ import {
   refreshSchema,
   setPasswordSchema,
   forgotPasswordSchema,
+  notificationPrefsSchema,
 } from "../schemas/index.js";
 
 async function login({ body }) {
@@ -123,10 +124,31 @@ async function me({ user }) {
   };
 }
 
+// Update the caller's OWN notification preferences (id from the token, so a user
+// can never change another user's prefs). email_notifications gates the
+// non-transactional emails they'd receive (escalation + settings-change);
+// sms_notifications is stored for the future SMS path. Only provided fields change.
+async function updateNotificationPrefs({ user, body }) {
+  const u = await getUser(user.id);
+  if (!u) throw new HttpError(404, "User not found");
+  if (body.email_notifications !== undefined) u.email_notifications = body.email_notifications;
+  if (body.sms_notifications !== undefined) u.sms_notifications = body.sms_notifications;
+  await putUser(u);
+  return {
+    email_notifications: u.email_notifications !== false,
+    sms_notifications: u.sms_notifications !== false,
+  };
+}
+
 export const handler = createRouter({
   "POST /api/v1/auth/login": { fn: login, schema: loginSchema },
   "POST /api/v1/auth/refresh": { fn: refresh, schema: refreshSchema },
   "POST /api/v1/auth/forgot-password": { fn: forgotPassword, schema: forgotPasswordSchema },
   "POST /api/v1/auth/set-password": { fn: setPassword, schema: setPasswordSchema },
   "GET /api/v1/auth/me": { fn: me, auth: "user" },
+  "PATCH /api/v1/auth/me": {
+    fn: updateNotificationPrefs,
+    auth: "user",
+    schema: notificationPrefsSchema,
+  },
 });

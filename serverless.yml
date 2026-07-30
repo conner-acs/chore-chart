@@ -158,6 +158,7 @@ functions:
       - httpApi: { path: "/api/v1/auth/forgot-password", method: post }
       - httpApi: { path: "/api/v1/auth/set-password", method: post }
       - httpApi: { path: "/api/v1/auth/me", method: get }
+      - httpApi: { path: "/api/v1/auth/me", method: patch }
 
   alerts:
     handler: src/handlers/alerts.handler
