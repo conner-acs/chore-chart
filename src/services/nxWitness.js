@@ -55,8 +55,19 @@ export class NxWitnessClient {
   }
 
   async _readJson(res) {
+    // Hard cap so a pathological VMS response (e.g. a huge bookmark list over a wide
+    // window) fails fast instead of OOMing the Lambda.
+    const MAX_BYTES = 64 * 1024 * 1024;
     const chunks = [];
-    for await (const c of res) chunks.push(c);
+    let n = 0;
+    for await (const c of res) {
+      n += c.length;
+      if (n > MAX_BYTES) {
+        res.destroy();
+        throw new NxWitnessError("Nx Witness response exceeded size limit");
+      }
+      chunks.push(c);
+    }
     const text = Buffer.concat(chunks).toString("utf8");
     return text ? JSON.parse(text) : {};
   }
@@ -116,6 +127,36 @@ export class NxWitnessClient {
     let data = await this._readJson(res);
     if (data && !Array.isArray(data)) data = data.devices || data.reply || [];
     return data;
+  }
+
+  // List bookmarks for a camera within an epoch-ms window. Nx Witness 6.0.x REST:
+  //   GET /rest/v2/devices/{deviceId}/bookmarks?startTimeMs=&endTimeMs=
+  // Returns an array of bookmark objects: { id (braced guid), deviceId (braced),
+  // name, description, startTimeMs, durationMs, creationTimeMs }. The braced
+  // deviceId in the path is left as-is (same as exportClipStream's /media path,
+  // which Nx accepts in production).
+  async listBookmarks(cameraId, startMs, endMs, { limit = 20000, timeout = CHUNK_TIMEOUT_MS } = {}) {
+    // `limit` bounds the per-camera payload (proven in scripts/nx-webm-test.sh). We
+    // deliberately send no `order` param: reconciliation is order-independent, so
+    // there's no reason to risk an unrecognised value. Base + limit are both verified
+    // against the live Nx 6.0.x server.
+    const res = await this._authedRequest(
+      "GET",
+      `/rest/v2/devices/${cameraId}/bookmarks?startTimeMs=${startMs}&endTimeMs=${endMs}&limit=${limit}`,
+      { timeout }
+    );
+    if (res.statusCode !== 200) {
+      throw new NxWitnessError(`Nx Witness bookmark list failed (${res.statusCode})`);
+    }
+    let data = await this._readJson(res);
+    if (data && !Array.isArray(data)) data = data.bookmarks || data.reply || [];
+    const arr = Array.isArray(data) ? data : [];
+    // If the page cap was hit the window is likely incomplete — fail loud rather than
+    // silently under-report (the caller catches + logs per camera).
+    if (arr.length >= limit) {
+      throw new NxWitnessError(`Nx Witness bookmark list for ${cameraId} hit the ${limit} cap`);
+    }
+    return arr;
   }
 
   // Returns the raw MP4 response stream (a Readable) for the given camera/time

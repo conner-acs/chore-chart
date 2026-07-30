@@ -74,6 +74,9 @@ export const siteResponse = (s) => ({
   address: s.address ?? null,
   latitude: n(s.latitude),
   longitude: n(s.longitude),
+  // Per-site bookmark health-check cutoff (YYYY-MM-DD): bookmarks before this are
+  // ignored by the health check + gap-fill. null when never configured.
+  bookmark_reconcile_from: n(s.bookmark_reconcile_from),
 });
 
 export const siteUserResponse = (u) => ({
@@ -174,6 +177,8 @@ export const adminSiteListItem = (s, organizationName) => ({
   nx_tls_cert: n(s.nx_tls_cert),
   latitude: n(s.latitude),
   longitude: n(s.longitude),
+  // Per-site bookmark health-check cutoff (YYYY-MM-DD) for the /sites/:id datepicker.
+  bookmark_reconcile_from: n(s.bookmark_reconcile_from),
 });
 
 export const adminUserListItem = (u, organizationName, sites) => ({

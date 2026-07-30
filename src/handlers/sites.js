@@ -77,6 +77,7 @@ async function createOrgSite({ user: caller, body }) {
     address: body.address ?? null,
     latitude: body.latitude ?? null,
     longitude: body.longitude ?? null,
+    bookmark_reconcile_from: body.bookmark_reconcile_from || null,
   };
   await putSite(site);
   return siteResponse(site);

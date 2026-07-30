@@ -14,16 +14,25 @@ export const getAlert = async (id) =>
   (await ddb.send(new GetCommand({ TableName: T, Key: { id } }))).Item || null;
 
 export const listAlertsBySite = async (siteId) => {
-  const { Items = [] } = await ddb.send(
-    new QueryCommand({
-      TableName: T,
-      IndexName: "site_id-created_at-index",
-      KeyConditionExpression: "site_id = :s",
-      ExpressionAttributeValues: { ":s": siteId },
-      ScanIndexForward: false, // newest first
-    })
-  );
-  return Items;
+  // Follow LastEvaluatedKey so a busy site (or a wide bookmark-healthcheck window)
+  // isn't silently truncated at the ~1MB single-page Query limit.
+  const items = [];
+  let ExclusiveStartKey;
+  do {
+    const res = await ddb.send(
+      new QueryCommand({
+        TableName: T,
+        IndexName: "site_id-created_at-index",
+        KeyConditionExpression: "site_id = :s",
+        ExpressionAttributeValues: { ":s": siteId },
+        ScanIndexForward: false, // newest first
+        ExclusiveStartKey,
+      })
+    );
+    if (res.Items) items.push(...res.Items);
+    ExclusiveStartKey = res.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+  return items;
 };
 
 export const listAllAlerts = async () => {

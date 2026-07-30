@@ -230,6 +230,8 @@ functions:
       - httpApi: { path: "/api/v1/admin/sites", method: get }
       - httpApi: { path: "/api/v1/admin/sites/{site_id}/test-connection", method: post }
       - httpApi: { path: "/api/v1/admin/sites/{site_id}/cameras", method: get }
+      - httpApi: { path: "/api/v1/admin/sites/{site_id}/bookmark-config", method: put }
+      - httpApi: { path: "/api/v1/admin/sites/{site_id}/bookmark-healthcheck", method: post }
       - httpApi: { path: "/api/v1/admin/sites/{site_id}", method: delete }
       - httpApi: { path: "/api/v1/admin/users", method: get }
       - httpApi: { path: "/api/v1/admin/users", method: post }

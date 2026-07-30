@@ -48,8 +48,9 @@ import {
   deleteAllForUser,
   deleteAllForSite,
 } from "../lib/repo/permissions.js";
-import { hasAlertsForSite } from "../lib/repo/alerts.js";
+import { hasAlertsForSite, listAlertsBySite } from "../lib/repo/alerts.js";
 import { deleteAllForUser as deleteTokensForUser } from "../lib/repo/deviceTokens.js";
+import { reconcileBookmarks } from "../lib/bookmarkReconcile.js";
 import {
   organizationResponse,
   createSiteResponse,
@@ -73,6 +74,7 @@ import {
   orgUserUpdateSchema,
   testAlertSchema,
   preferencesSchema,
+  bookmarkConfigSchema,
 } from "../schemas/index.js";
 import { shouldHideTestData, testOrgIdsFrom } from "../lib/testOrgs.js";
 
@@ -121,6 +123,7 @@ async function buildSite(body, organizationId) {
     nx_tls_cert: body.nx_tls_cert ?? null,
     latitude: body.latitude ?? null,
     longitude: body.longitude ?? null,
+    bookmark_reconcile_from: body.bookmark_reconcile_from || null,
   };
   await putSite(site);
   const [ok, detail] = await checkNxConnection(site);
@@ -404,6 +407,136 @@ async function listCameras({ params }) {
     throw new HttpError(502, "Could not reach the site's Nx Witness server.");
   }
   return devices.filter((d) => d && typeof d === "object").map(cameraResponse);
+}
+
+// ---- bookmark health check (superuser, per site) -------------------------
+
+// Set the per-site "reconcile from" cutoff (YYYY-MM-DD). The bookmark health check
+// (and later the going-forward gap-fill) ignore Nx bookmarks that START before it.
+// Blank/null clears it (reconcile all).
+async function setSiteBookmarkConfig({ params, body }) {
+  const site = await getSite(params.site_id);
+  if (!site) throw new HttpError(404, "Site not found");
+  const from = body.bookmark_reconcile_from ? body.bookmark_reconcile_from : null;
+  if (from) {
+    const ms = Date.parse(`${from}T00:00:00.000Z`);
+    // Reject calendar-invalid dates (NaN, or a V8 rollover like 2026-02-31 -> 03-03)
+    // and future dates. Either would silently narrow or zero the health-check window
+    // and read as a false "all clear". The round-trip check catches the rollover.
+    if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== from || ms > Date.now()) {
+      throw new HttpError(422, "bookmark_reconcile_from must be a real, non-future YYYY-MM-DD date");
+    }
+  }
+  site.bookmark_reconcile_from = from;
+  await putSite(site);
+  return { site_id: site.id, bookmark_reconcile_from: from };
+}
+
+// Cross-check the Nx bookmark log against this site's alerts and log the summary to
+// CloudWatch. Read-only (Phase 1): reports matched / bookmarks-without-alert (alerts
+// that were never generated) / alerts-without-bookmark, ignoring bookmarks before the
+// site's reconcile-from cutoff.
+async function runSiteBookmarkHealthcheck({ params, query }) {
+  const site = await getSite(params.site_id);
+  if (!site) throw new HttpError(404, "Site not found");
+  if (!site.nx_host) throw new HttpError(400, "Site has no Nx Witness connection configured");
+
+  // Window is [fromMs, now]. fromMs = the site's reconcile-from cutoff if set;
+  // otherwise `?window_hours` back (default 24h, capped at 90d) so an unconfigured
+  // site never scans unbounded history.
+  const nowMs = Date.now();
+  const cutoffMs = site.bookmark_reconcile_from
+    ? Date.parse(`${site.bookmark_reconcile_from}T00:00:00.000Z`)
+    : NaN;
+  const windowHours = Math.min(Math.max(parseInt(query?.window_hours, 10) || 24, 1), 24 * 90);
+  // Never scan more than 90 days back, even for an old configured cutoff, so a stale
+  // reconcile-from date can't request years of history (memory/timeout blowup).
+  const MAX_LOOKBACK_MS = 24 * 90 * 3600 * 1000;
+  const requestedFrom = Number.isFinite(cutoffMs) ? cutoffMs : nowMs - windowHours * 3600 * 1000;
+  const fromMs = Math.max(requestedFrom, nowMs - MAX_LOOKBACK_MS);
+
+  // Nx client from the site's stored credentials (same path as testConnection). The
+  // device list is fetched here too so a VMS failure maps to 502 (not a generic 500).
+  let client;
+  let devices;
+  try {
+    client = new NxWitnessClient({
+      host: site.nx_host,
+      username: site.nx_username,
+      password: await decryptNxPassword(site.nx_password_encrypted),
+      tlsCert: site.nx_tls_cert,
+    });
+    await client.verifyConnection();
+    devices = await client.listDevices();
+  } catch {
+    throw new HttpError(502, "Could not reach the site's Nx Witness server.");
+  }
+
+  // Bounded-concurrency bookmark fetch per camera so we don't hammer the VMS. Each
+  // call has a per-camera timeout WELL under the 29s Lambda budget so a slow camera
+  // rejects (and contributes nothing) instead of killing the invocation; a wall-clock
+  // deadline stops early with a partial report rather than timing out.
+  const cameraIds = devices
+    .map((d) => d && (d.id || d.physicalId))
+    .filter((id) => typeof id === "string" && id);
+  const bookmarks = [];
+  let partial = false;
+  const CONCURRENCY = 6;
+  const PER_CAMERA_TIMEOUT_MS = 8000;
+  const deadlineMs = nowMs + 24000; // headroom under the 29s function timeout
+  for (let i = 0; i < cameraIds.length; i += CONCURRENCY) {
+    if (Date.now() > deadlineMs) {
+      partial = true;
+      break;
+    }
+    const batch = cameraIds.slice(i, i + CONCURRENCY);
+    const lists = await Promise.all(
+      batch.map((cid) =>
+        client.listBookmarks(cid, fromMs, nowMs, { timeout: PER_CAMERA_TIMEOUT_MS }).catch((err) => {
+          console.warn("[bookmark-healthcheck] bookmark fetch failed", cid, err.message);
+          return [];
+        })
+      )
+    );
+    for (const list of lists) bookmarks.push(...list);
+  }
+
+  const alerts = await listAlertsBySite(site.id);
+  const report = reconcileBookmarks(bookmarks, alerts, { fromMs });
+
+  // Greppable structured CloudWatch line (counts only — never the full lists).
+  console.info(
+    "[bookmark-healthcheck]",
+    JSON.stringify({
+      site_id: site.id,
+      site_token: site.site_token,
+      reconcile_from: site.bookmark_reconcile_from || null,
+      from_ms: fromMs,
+      cameras: cameraIds.length,
+      partial,
+      ...report.counts,
+    })
+  );
+
+  // Cap the detail arrays in the HTTP response (counts stay exact).
+  const CAP = 100;
+  const cap = (a) => a.slice(0, CAP);
+  return {
+    site_id: site.id,
+    site_token: site.site_token,
+    reconcile_from: site.bookmark_reconcile_from || null,
+    window: { from: new Date(fromMs).toISOString(), to: new Date(nowMs).toISOString() },
+    cameras: cameraIds.length,
+    partial,
+    counts: report.counts,
+    truncated:
+      report.matched.length > CAP ||
+      report.bookmarks_without_alert.length > CAP ||
+      report.alerts_without_bookmark.length > CAP,
+    matched: cap(report.matched),
+    bookmarks_without_alert: cap(report.bookmarks_without_alert),
+    alerts_without_bookmark: cap(report.alerts_without_bookmark),
+  };
 }
 
 async function deleteSiteAdmin({ params }) {
@@ -898,6 +1031,15 @@ export const handler = createRouter({
     auth: "superuser",
   },
   "GET /api/v1/admin/sites/{site_id}/cameras": { fn: listCameras, auth: "superuser" },
+  "PUT /api/v1/admin/sites/{site_id}/bookmark-config": {
+    fn: setSiteBookmarkConfig,
+    auth: "superuser",
+    schema: bookmarkConfigSchema,
+  },
+  "POST /api/v1/admin/sites/{site_id}/bookmark-healthcheck": {
+    fn: runSiteBookmarkHealthcheck,
+    auth: "superuser",
+  },
   "DELETE /api/v1/admin/sites/{site_id}": { fn: deleteSiteAdmin, auth: "superuser", status: 204 },
   "GET /api/v1/admin/users": { fn: listUsers, auth: "superuser" },
   "POST /api/v1/admin/users": {

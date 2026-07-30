@@ -18,6 +18,24 @@ const SITE_TOKEN = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
 const uuid = Joi.string().uuid();
 const email = Joi.string().email();
 
+// A YYYY-MM-DD string that must be a REAL calendar date — rejects out-of-range like
+// 2026-13-45 and V8 rollovers like 2026-02-31 (which Date.parse would silently shift).
+// Callers add their own .allow(null, "") / .required(); the health-check handler adds
+// the non-future rule. Reused as an immutable base (.allow()/.required() return copies).
+const ymdDate = Joi.string()
+  .pattern(/^\d{4}-\d{2}-\d{2}$/)
+  .custom((v, helpers) => {
+    const ms = Date.parse(`${v}T00:00:00.000Z`);
+    if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== v) {
+      return helpers.error("any.invalid");
+    }
+    return v;
+  })
+  .messages({
+    "string.pattern.base": "must be a YYYY-MM-DD date",
+    "any.invalid": "must be a real calendar date",
+  });
+
 // ---- auth ---------------------------------------------------------------
 export const loginSchema = Joi.object({
   email: email.required(),
@@ -120,6 +138,9 @@ const siteFields = {
   nx_tls_cert: Joi.string().allow(null),
   latitude: Joi.number().allow(null),
   longitude: Joi.number().allow(null),
+  // Optional bookmark health-check cutoff (YYYY-MM-DD); the create UI defaults it to
+  // the user's LOCAL today.
+  bookmark_reconcile_from: ymdDate.allow(null, ""),
 };
 
 // POST /admin/sites — organization in the body.
@@ -142,6 +163,13 @@ export const nxConnectionSchema = Joi.object({
   // .trim() so a whitespace-only username fails min(1) rather than being stored blank.
   nx_username: Joi.string().trim().min(1).max(200).required(),
   nx_password: Joi.string().max(500).allow("", null),
+});
+
+// PUT /admin/sites/{id}/bookmark-config — per-site bookmark health-check config
+// (superuser). bookmark_reconcile_from is the date (YYYY-MM-DD, from the datepicker)
+// before which the health check + gap-fill ignore Nx bookmarks; null/"" clears it.
+export const bookmarkConfigSchema = Joi.object({
+  bookmark_reconcile_from: ymdDate.allow(null, "").required(),
 });
 
 export const createUserSchema = Joi.object({
@@ -253,6 +281,9 @@ export const orgSiteCreateSchema = Joi.object({
   address: Joi.string().allow("", null),
   latitude: Joi.number().allow(null),
   longitude: Joi.number().allow(null),
+  // Optional bookmark health-check cutoff (YYYY-MM-DD). The create UI defaults it to
+  // the user's LOCAL today so a new centre only reconciles bookmarks from onboarding.
+  bookmark_reconcile_from: ymdDate.allow(null, ""),
 });
 
 // Site-admin edit of a site (PATCH /api/v1/sites/{id}). At least one field. Only
