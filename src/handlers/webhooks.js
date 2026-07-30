@@ -15,8 +15,18 @@ import { webhookAlertSchema } from "../schemas/index.js";
 // path in-process (secret check + site_token resolution + putAlert + broadcast)
 // rather than duplicating alert creation.
 export async function receiveAlert({ event, body }) {
+  // Auth: prefer the X-Webhook-Secret header; fall back to a `webhook_secret`
+  // (or `secret`) query parameter. The query-param fallback exists because some
+  // Nx Witness versions (e.g. 6.0.1) can't send custom HTTP headers from an
+  // event rule — they can only put the secret in the URL. It's sent over HTTPS
+  // to our endpoint and is still rotatable; use the header when the caller (e.g.
+  // the SafeDay plugin) can set one.
+  const q = event.queryStringParameters || {};
   const provided =
-    event.headers?.["x-webhook-secret"] || event.headers?.["X-Webhook-Secret"];
+    event.headers?.["x-webhook-secret"] ||
+    event.headers?.["X-Webhook-Secret"] ||
+    q.webhook_secret ||
+    q.secret;
   const expected = await getSecret("webhookSecret");
   if (!provided || provided !== expected) {
     throw new HttpError(401, "Invalid webhook secret");
