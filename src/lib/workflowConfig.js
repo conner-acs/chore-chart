@@ -8,6 +8,9 @@
 //       "management"-> normal management-review request in the Requests tab.
 //       "normal"    -> no admin-attention request raised.
 // - notified: "who has been notified" checkboxes for a genuine incident.
+// - alert_types: the detection (alert) types the org's cameras raise. Drives the
+//     Resolved-tab "Alert Type" filter in the operator portal. Each { id, label }
+//     id matches the alert record's `type` (e.g. CHILD_ALONE).
 //
 // An org with no stored workflow_config falls back to these defaults, so existing
 // orgs work unchanged.
@@ -15,6 +18,12 @@
 export const SEVERITIES = ["critical", "management", "normal"];
 
 export const DEFAULT_WORKFLOW_CONFIG = {
+  alert_types: [
+    { id: "CHILD_ALONE", label: "Child Alone" },
+    { id: "CHILD_IN_NO_GO_ZONE", label: "No-Go Zone" },
+    { id: "BLACKLISTED_VEHICLE", label: "Blacklisted Vehicle" },
+    { id: "CHILD_ALONE_WITH_ADULT", label: "Adult Alone with Child" },
+  ],
   categories: {
     false_alarm: [
       { id: "poster", label: "Poster or wall art" },
@@ -63,6 +72,7 @@ export function orgWorkflowConfig(org) {
   const c = (org && org.workflow_config) || {};
   const cats = c.categories || {};
   return {
+    alert_types: list(c.alert_types, DEFAULT_WORKFLOW_CONFIG.alert_types),
     categories: {
       false_alarm: list(cats.false_alarm, DEFAULT_WORKFLOW_CONFIG.categories.false_alarm),
       false_positive: list(cats.false_positive, DEFAULT_WORKFLOW_CONFIG.categories.false_positive),
